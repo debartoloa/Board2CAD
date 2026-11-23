@@ -1,0 +1,26 @@
+{
+  "slug": "arduino-uno",
+  "name": "Arduino Uno",
+  "category": "MCU Development Board",
+  "description": "Modello parametrico 3D Arduino Uno (54.6x27.9x11.2 mm) generato con Board2CAD.",
+  "dimensions": {
+    "length": 75.1,
+    "width": 53.8,
+    "height": 12.6
+  },
+  "mountingHoles": {
+    "diameter": 2.6,
+    "pitchX": 49,
+    "pitchY": 23
+  },
+  "tags": [
+    "OpenSCAD",
+    "Manifold",
+    "STL",
+    "3MF",
+    "MCU"
+  ],
+  "createdAt": "2026-11-23T18:17:59.467Z",
+  "updatedAt": "2026-11-23T18:18:07.002Z",
+  "hardwareNotes": ""
+}
