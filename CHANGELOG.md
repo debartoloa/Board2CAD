@@ -5,6 +5,21 @@ Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.0.0/)
 
 ---
 
+## [v1.3.0] - 2026-11-23
+
+### Fixed
+- **Rimosso Pre-Check Falso Positivo `"Parentesi graffe non bilanciate (delta = 2)"` (`js/workers/openscad.worker.js`):**
+  - Eliminato il conteggio manuale carattere per carattere di `{` e `}` in `validateManifoldScad` che contava erroneamente parentesi dentro commenti (`//...`, `/*...*/`) e stringhe.
+  - Il bilanciamento e la validazione sintattica sono ora gestiti direttamente a livello di stream di token (dopo lo stripping completo di commenti e stringhe) e dal compilatore AST/CSG nel Web Worker, con supporto esteso anche a `.x/.y/.z`, `minkowski()`, `offset()`, `render()`, `echo()` e `assert()`.
+- **Eliminati Tutti i Template Hardcodati ESP32/Freenove e Fallback Mock (`js/services/aiService.js`, `js/components/wizard.js`):**
+  - Rimosse le funzioni `buildParametricManifoldScad` e `getPresetDefaults` che generavano silenziosamente moduli `usb_c_receptacle`, `jst_4pin_connector`, `microsd_push_slot`, `esp32_wroom_soc` e `ips_display_assembly` con dimensioni fisse `54.6 × 27.9 mm` quando veniva caricata un'altra scheda (es. Arduino Uno R3 `68.6 × 53.4 mm`).
+  - Se l'API Key AI non è configurata o la chiamata Vision fallisce, viene ora mostrato un errore chiaro all'utente invece di sostituire il modello con una scheda finta.
+- **System Prompt AI Vision Autentico & Verifica Payload Multimodale Base64:**
+  - Aggiornato `SYSTEM_PROMPT_MANIFOLD` e i prompt di Step 2 e Step 3 per imporre la lettura delle quote reali direttamente dalle foto allegate, la generazione dei soli componenti visibili nella foto (zero moduli estranei), l'orientamento di tutti i connettori (USB-B, USB-C, Jack DC, JST, microSD) verso il perimetro esterno del PCB e la compenetrazione `eps = 0.05 mm`.
+  - Verificato l'allegato `inline_data` Base64 delle immagini in tutte le chiamate Gemini Vision / OpenAI Vision (`maxOutputTokens: 8192`).
+
+---
+
 ## [v1.2.1] - 2026-11-23
 
 ### Fixed

@@ -4,7 +4,7 @@
  * Strategy: Network-First with Offline Cache Fallback for App Shell & 3D Models Library
  */
 
-const CACHE_VERSION = 'v1.2.1';
+const CACHE_VERSION = 'v1.3.0';
 const CACHE_NAME = `board2cad-${CACHE_VERSION}`;
 
 const PRECACHE_ASSETS = [
@@ -16,10 +16,10 @@ const PRECACHE_ASSETS = [
   './icon-512.png',
   './screenshot-mobile.png',
   './screenshot-desktop.png',
-  './css/variables.css?v=1.2.1',
-  './css/main.css?v=1.2.1',
-  './css/viewer.css?v=1.2.1',
-  './js/app.js?v=1.2.1',
+  './css/variables.css?v=1.3.0',
+  './css/main.css?v=1.3.0',
+  './css/viewer.css?v=1.3.0',
+  './js/app.js?v=1.3.0',
   './js/services/aiService.js',
   './js/services/storageService.js',
   './js/services/githubService.js',

@@ -1,8 +1,8 @@
 /**
  * Board2CAD — 3-Step AI Vision & Parametric CAD Wizard (js/components/wizard.js)
- * Step 1: Upload board photos + name + notes
- * Step 2: AI Vision Inspection & Dynamic Clarification Form (Clarification First)
- * Step 3: OpenSCAD 100% Manifold Code Generation + Auto-Fix Loop (max 2 retries) + STL & 3MF Compilation
+ * Step 1: Upload board photos + name + notes (or existing .SCAD code)
+ * Step 2: Authentic AI Vision Inspection & Dynamic Clarification Form (Clarification First)
+ * Step 3: OpenSCAD 100% Manifold Code Generation + Compiler Validation + Auto-Fix Loop + STL & 3MF
  */
 
 import { aiService } from '../services/aiService.js';
@@ -126,7 +126,7 @@ export class WizardComponent {
 
     const generateScadBtn = document.getElementById('wizard-generate-scad-btn');
     if (generateScadBtn) {
-      generateScadBtn.addEventListener('click', () => this.runStep3Generation());
+      generateScadBtn.addEventListener('click', () => this.runStep3Generation(false));
     }
 
     const backStep2Btn = document.getElementById('wizard-back-step2-btn');
@@ -150,7 +150,7 @@ export class WizardComponent {
   }
 
   /**
-   * Legge e ridimensiona le immagini caricate in DataURL
+   * Legge le immagini caricate in DataURL Base64
    */
   async handleFiles(files) {
     for (const file of files) {
@@ -158,10 +158,14 @@ export class WizardComponent {
       const dataUrl = await this.readFileAsDataUrl(file);
       this.uploadedImages.push({
         name: file.name,
+        mimeType: file.type,
+        sizeKb: Math.round(file.size / 1024),
         dataUrl
       });
     }
     this.renderThumbnails();
+    // Reset input value so re-selecting the same image works
+    if (this.fileInputEl) this.fileInputEl.value = '';
   }
 
   readFileAsDataUrl(file) {
@@ -178,7 +182,7 @@ export class WizardComponent {
     this.thumbsContainerEl.innerHTML = this.uploadedImages
       .map(
         (img, idx) => `
-        <div class="thumb-item">
+        <div class="thumb-item" title="${img.name} (${img.sizeKb || '--'} KB)">
           <img src="${img.dataUrl}" alt="${img.name}">
           <button type="button" class="thumb-remove" data-idx="${idx}" title="Rimuovi immagine">✕</button>
         </div>
@@ -196,15 +200,15 @@ export class WizardComponent {
   }
 
   /**
-   * Step 2: Esegue l'analisi AI Vision ("Clarification First")
+   * Step 2: Esegue l'analisi AI Vision ("Clarification First") allegando le immagini in Base64
    */
   async runStep2Analysis() {
-    const name = (this.nameInputEl?.value || '').trim() || 'ESP32 Custom Module';
+    const name = (this.nameInputEl?.value || '').trim() || 'Nuova Scheda PCB';
     if (this.nameInputEl && !this.nameInputEl.value) {
       this.nameInputEl.value = name;
     }
 
-    const category = this.categorySelectEl?.value || 'HMI / Display MCU';
+    const category = this.categorySelectEl?.value || 'MCU Development Board';
     const preset = this.presetSelectEl?.value || 'auto';
     const notes = (this.notesInputEl?.value || '').trim();
     const existingScad = (this.baseScadInputEl?.value || '').trim();
@@ -212,7 +216,7 @@ export class WizardComponent {
     const analyzeBtn = document.getElementById('wizard-analyze-btn');
     if (analyzeBtn) {
       analyzeBtn.disabled = true;
-      analyzeBtn.querySelector('span').textContent = 'Ispezione AI & Codice in corso...';
+      analyzeBtn.querySelector('span').textContent = `Analisi AI Vision in corso (${this.uploadedImages.length} foto)...`;
     }
 
     try {
@@ -226,17 +230,30 @@ export class WizardComponent {
       });
 
       this.currentAnalysis = analysis;
+
+      // Se l'AI ha identificato il nome preciso della scheda dalla foto e l'utente aveva lasciato un nome generico, aggiorniamolo
+      if (
+        analysis.boardIdentified &&
+        this.nameInputEl &&
+        (this.nameInputEl.value === 'Nuova Scheda PCB' || !this.nameInputEl.value.trim())
+      ) {
+        this.nameInputEl.value = analysis.boardIdentified;
+      }
+
       this.renderClarificationForm(analysis);
       this.goToStep(2);
 
       if (analysis.hasExistingScad && this.showToast) {
-        this.showToast('Quote estratte dal tuo codice .SCAD! Verifica i valori e procedi allo Step 3 per applicare le modifiche.', 'success');
-      } else if (!analysis.needsClarification && this.showToast) {
-        this.showToast('Quote principali rilevate! Puoi confermare o procedere subito alla compilazione 3D.', 'info');
+        this.showToast('Quote estratte dal tuo codice .SCAD! Verifica i valori e procedi allo Step 3.', 'success');
+      } else if (this.showToast) {
+        this.showToast(
+          `Analisi AI Vision completata (${this.uploadedImages.length} immagini Base64 inviate). Verifica le quote lette dalla foto!`,
+          'success'
+        );
       }
     } catch (err) {
       if (this.showToast) {
-        this.showToast(`Errore analisi scheda: ${err.message}`, 'error');
+        this.showToast(err.message, 'error');
       }
     } finally {
       if (analyzeBtn) {
@@ -247,11 +264,14 @@ export class WizardComponent {
   }
 
   /**
-   * Genera dinamicamente il form HTML per i soli dati critici ("Clarification First")
+   * Genera dinamicamente il form HTML con le quote lette dalla foto e i componenti reali rilevati
    */
   renderClarificationForm(analysis) {
     if (this.analysisSummaryEl) {
-      this.analysisSummaryEl.textContent = analysis.summary || 'Conferma le misure critiche stimate per la scheda.';
+      const compList = Array.isArray(analysis.detectedComponents) && analysis.detectedComponents.length > 0
+        ? ` — Componenti rilevati nella foto: ${analysis.detectedComponents.join(' · ')}`
+        : '';
+      this.analysisSummaryEl.textContent = `${analysis.summary || 'Conferma le misure critiche lette dalla foto.'}${compList}`;
     }
 
     if (!this.clarificationFormEl) return;
@@ -265,7 +285,7 @@ export class WizardComponent {
             type="${q.type || 'number'}"
             id="clarify-${q.id}"
             name="${q.id}"
-            value="${q.suggestedValue}"
+            value="${q.suggestedValue ?? ''}"
             min="${q.min ?? 0}"
             max="${q.max ?? 500}"
             step="${q.step ?? 0.1}"
@@ -291,7 +311,8 @@ export class WizardComponent {
   }
 
   /**
-   * Step 3: Generazione/Modifica script OpenSCAD, Auto-Fix Loop (max 2 tentativi) e compilazione STL + 3MF
+   * Step 3: Generazione/Modifica script OpenSCAD autentico, Compilazione Web Worker e Auto-Fix Loop (max 2 tentativi).
+   * NESSUN FALLBACK MOCK: non sovrascrive mai lo script con template ESP32/Freenove!
    */
   async runStep3Generation(directCompileExistingScad = false) {
     this.goToStep(3);
@@ -299,122 +320,151 @@ export class WizardComponent {
     if (this.pipelineLogEl) this.pipelineLogEl.innerHTML = '';
 
     const name = (this.nameInputEl?.value || 'Scheda Custom 3D').trim() || 'Scheda Custom 3D';
-    if (this.nameInputEl && !this.nameInputEl.value.trim()) {
-      this.nameInputEl.value = name;
-    }
-    const category = this.categorySelectEl?.value || 'HMI / Display MCU';
+    const category = this.categorySelectEl?.value || 'MCU Development Board';
     const preset = this.presetSelectEl?.value || 'auto';
     const notes = (this.notesInputEl?.value || '').trim();
     const existingScad = (this.baseScadInputEl?.value || '').trim();
     const parameters = directCompileExistingScad
-      ? aiService.extractDimensionsFromNotes(notes, name, category, preset, existingScad)
+      ? aiService.extractDimensionsFromNotesAndScad(notes, existingScad)
       : this.collectClarifiedParameters();
 
     const slug = this.slugify(name);
 
-    this.appendLog(`Avvio elaborazione OpenSCAD 100% Manifold per "${name}" (${slug})...`, 'info');
-
-    let scadCode = '';
-    if (directCompileExistingScad && existingScad) {
-      this.appendLog('Modalità Compilazione Diretta: utilizzo il codice .SCAD fornito dall\'utente...', 'info');
-      scadCode = notes
-        ? aiService.applyModificationsToExistingScad(existingScad, parameters, notes, name)
-        : existingScad;
-    } else {
-      if (existingScad) {
-        this.appendLog(`Applicazione modifiche richieste sul codice .SCAD di partenza (${existingScad.split(/\r?\n/).length} righe)...`, 'info');
-      }
+    this.appendLog(`Avvio generazione OpenSCAD 100% Manifold per "${name}" (${slug})...`, 'info');
+    if (this.uploadedImages.length > 0) {
+      const totalKb = this.uploadedImages.reduce((acc, img) => acc + (img.sizeKb || 0), 0);
       this.appendLog(
-        `Quote confermate: PCB ${parameters.pcb_length} × ${parameters.pcb_width} × ${parameters.pcb_thickness} mm, Fori Ø${parameters.hole_diameter} mm (${parameters.hole_pitch_x} × ${parameters.hole_pitch_y} mm).`,
+        `Payload multimodale attivo: ${this.uploadedImages.length} immagini Base64 allegate (${totalKb} KB).`,
         'info'
       );
-
-      scadCode = await aiService.generateOpenSCAD({
-        name,
-        category,
-        preset,
-        notes,
-        parameters,
-        images: this.uploadedImages,
-        existingScad
-      });
     }
 
-    this.appendLog('Script OpenSCAD generato con compenetrazione eps = 0.05 mm e blocchi Customizer.', 'ok');
-
-    // Compilazione + Loop di Auto-Fix (max 2 tentativi in caso di warning/errore non-manifold)
-    let compileResult = null;
-    const maxAttempts = 2;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      this.appendLog(`[Tentativo ${attempt}/${maxAttempts}] Compilazione Web Worker OpenSCAD -> model.stl & model.3mf...`, 'info');
-      compileResult = await this.compileScadWithWorker(scadCode);
-
-      if (compileResult.ok && compileResult.validation?.isManifold !== false) {
+    try {
+      let scadCode = '';
+      if (directCompileExistingScad && existingScad) {
+        this.appendLog('Modalità Compilazione Diretta: utilizzo il codice .SCAD fornito dall\'utente...', 'info');
+        scadCode = notes
+          ? aiService.applyModificationsToExistingScad(existingScad, parameters, notes, name)
+          : existingScad;
+      } else {
         this.appendLog(
-          `Compilazione completata in ${compileResult.metrics.elapsedMs} ms: ${compileResult.metrics.triangles} triangoli, mesh 100% watertight.`,
-          'ok'
+          `Quote confermate: PCB ${parameters.pcb_length} × ${parameters.pcb_width} × ${parameters.pcb_thickness || 1.6} mm.`,
+          'info'
         );
-        break;
+        if (this.currentAnalysis?.detectedComponents?.length) {
+          this.appendLog(
+            `Modellazione componenti rilevati: ${this.currentAnalysis.detectedComponents.slice(0, 6).join(', ')}...`,
+            'info'
+          );
+        }
+
+        scadCode = await aiService.generateOpenSCAD({
+          name,
+          category,
+          preset,
+          notes,
+          parameters,
+          images: this.uploadedImages,
+          existingScad,
+          analysisContext: this.currentAnalysis
+        });
       }
 
-      const issueMsg =
-        compileResult.error ||
-        (compileResult.validation?.warnings || []).join('; ') ||
-        'Avviso mesh non-manifold rilevato';
-      this.appendLog(`Rilevato problema manifold/sintassi: ${issueMsg}. Avvio Auto-Fix AI...`, 'warn');
+      this.appendLog('Script OpenSCAD generato con successo. Avvio compilazione nel Web Worker...', 'ok');
 
-      scadCode = await aiService.autoFixManifoldScript(scadCode, issueMsg, parameters, name);
+      // Compilazione + Loop di Auto-Fix (max 2 tentativi solo in caso di vero errore del compilatore)
+      let compileResult = null;
+      const maxAttempts = 2;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        this.appendLog(`[Tentativo ${attempt}/${maxAttempts}] Compilazione OpenSCAD -> model.stl & model.3mf...`, 'info');
+        compileResult = await this.compileScadWithWorker(scadCode);
+
+        if (compileResult.ok) {
+          this.appendLog(
+            `Compilazione completata in ${compileResult.metrics.elapsedMs} ms: ${compileResult.metrics.triangles} triangoli, ingombro ${compileResult.metrics.dimensions.length} × ${compileResult.metrics.dimensions.width} × ${compileResult.metrics.dimensions.height} mm.`,
+            'ok'
+          );
+          break;
+        }
+
+        const issueMsg = compileResult.error || 'Errore di sintassi o geometria OpenSCAD';
+        this.appendLog(`Errore segnalato dal compilatore: ${issueMsg}. Avvio Auto-Fix AI...`, 'warn');
+
+        if (attempt < maxAttempts) {
+          scadCode = await aiService.autoFixManifoldScript(
+            scadCode,
+            issueMsg,
+            parameters,
+            name,
+            this.uploadedImages
+          );
+        }
+      }
+
+      if (!compileResult || !compileResult.ok) {
+        throw new Error(
+          compileResult?.error ||
+            'Il compilatore OpenSCAD non è riuscito a generare la mesh dopo 2 tentativi. Puoi aprire lo Studio 3D per ispezionare e modificare lo script.'
+        );
+      }
+
+      const dims = compileResult.metrics?.dimensions || {
+        length: parameters.pcb_length || 68.6,
+        width: parameters.pcb_width || 53.4,
+        height: 12.0
+      };
+
+      const meta = {
+        slug,
+        name,
+        category,
+        description:
+          this.currentAnalysis?.summary ||
+          notes ||
+          `Modello parametrico 3D ${name} (${dims.length}x${dims.width}x${dims.height} mm) generato con Board2CAD.`,
+        hardwareNotes: (this.currentAnalysis?.detectedComponents || []).join(' | '),
+        dimensions: dims,
+        mountingHoles: {
+          diameter: parameters.hole_diameter || 3.2,
+          pitchX: parameters.hole_pitch_x || Number((dims.length - 6).toFixed(1)),
+          pitchY: parameters.hole_pitch_y || Number((dims.width - 6).toFixed(1))
+        },
+        tags: ['OpenSCAD', 'Manifold', 'STL', '3MF', category.split(' ')[0]],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      this.generatedModelData = {
+        slug,
+        source: 'local',
+        meta,
+        scad: compileResult.scadCode || scadCode,
+        stlBuffer: compileResult.stlBuffer,
+        threemfBuffer: compileResult.threemfBuffer,
+        viewerParts: compileResult.viewerParts,
+        metrics: compileResult.metrics,
+        previewDataUrl: this.uploadedImages[0]?.dataUrl || './icon-512.png'
+      };
+
+      this.appendLog(
+        `File generati: model.scad, model.stl (${Math.round((compileResult.stlBuffer?.byteLength || 0) / 1024)} KB), model.3mf (${Math.round((compileResult.threemfBuffer?.byteLength || 0) / 1024)} KB), meta.json.`,
+        'ok'
+      );
+
+      if (this.onModelGenerated) {
+        await this.onModelGenerated(this.generatedModelData, false);
+      }
+
+      this.appendLog('Modello salvato automaticamente in IndexedDB locale e pronto nello Studio 3D!', 'ok');
+      if (this.step3ActionsEl) this.step3ActionsEl.hidden = false;
+    } catch (err) {
+      this.appendLog(`ERRORE: ${err.message}`, 'warn');
+      if (this.step3ActionsEl) this.step3ActionsEl.hidden = false;
+      if (this.showToast) {
+        this.showToast(err.message, 'error');
+      }
     }
-
-    if (!compileResult || !compileResult.ok) {
-      this.appendLog('Applicazione fallback geometrico sicuro 100% manifold...', 'warn');
-      scadCode = aiService.buildParametricManifoldScad({ name, category, preset, notes, parameters });
-      compileResult = await this.compileScadWithWorker(scadCode);
-    }
-
-    const dims = compileResult.metrics?.dimensions || {
-      length: parameters.pcb_length || 86.0,
-      width: parameters.pcb_width || 50.0,
-      height: 11.2
-    };
-
-    const meta = {
-      slug,
-      name,
-      category,
-      description: notes || `Modello parametrico 3D ${name} (${dims.length}x${dims.width}x${dims.height} mm) generato con Board2CAD.`,
-      dimensions: dims,
-      mountingHoles: {
-        diameter: parameters.hole_diameter || 3.2,
-        pitchX: parameters.hole_pitch_x || dims.length - 6,
-        pitchY: parameters.hole_pitch_y || dims.width - 6
-      },
-      tags: ['OpenSCAD', 'Manifold', 'STL', '3MF', category.split(' ')[0]],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    this.generatedModelData = {
-      slug,
-      source: 'local',
-      meta,
-      scad: compileResult.scadCode || scadCode,
-      stlBuffer: compileResult.stlBuffer,
-      threemfBuffer: compileResult.threemfBuffer,
-      viewerParts: compileResult.viewerParts,
-      metrics: compileResult.metrics,
-      previewDataUrl: this.uploadedImages[0]?.dataUrl || './models/freenove-esp32-s3-2.8/preview.png'
-    };
-
-    this.appendLog(`File generati: model.scad, model.stl (${Math.round((compileResult.stlBuffer?.byteLength || 0) / 1024)} KB), model.3mf (${Math.round((compileResult.threemfBuffer?.byteLength || 0) / 1024)} KB), meta.json.`, 'ok');
-
-    if (this.onModelGenerated) {
-      await this.onModelGenerated(this.generatedModelData, false);
-    }
-
-    this.appendLog('Modello salvato automaticamente in IndexedDB locale e pronto nello Studio 3D!', 'ok');
-    if (this.step3ActionsEl) this.step3ActionsEl.hidden = false;
   }
 
   appendLog(message, level = 'info') {
@@ -441,6 +491,7 @@ export class WizardComponent {
 
   resetWizard() {
     this.uploadedImages = [];
+    this.currentAnalysis = null;
     this.renderThumbnails();
     if (this.nameInputEl) this.nameInputEl.value = '';
     if (this.notesInputEl) this.notesInputEl.value = '';

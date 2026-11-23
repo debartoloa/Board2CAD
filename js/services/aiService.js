@@ -1,80 +1,118 @@
 /**
- * Board2CAD — AI Vision & OpenSCAD Parametric Generator Service
- * Supports Google Gemini Vision API, OpenAI GPT-4o Vision API, and
- * Intelligent Offline Parametric Engine with Clarification First & Auto-Fix Loop.
+ * Board2CAD — AI Vision & OpenSCAD Parametric Generator Service (js/services/aiService.js)
+ * Authentic Multimodal Vision Analysis (Google Gemini Vision / OpenAI GPT-4o Vision)
+ * + Existing OpenSCAD (.scad) Code Modification Engine.
+ *
+ * ZERO Hardcoded Board Templates: Never substitutes fake ESP32/Freenove models.
  */
 
 import { storageService } from './storageService.js';
 
-const SYSTEM_PROMPT_MANIFOLD = `Sei un Senior CAD Automation Engineer specializzato in OpenSCAD per schede elettroniche (PCB 3D Dummy / Mechanical Enclosure Models).
-REGOLE GEOMETRICHE TASSATIVE (100% MANIFOLD / WATERTIGHT):
-1. Definisci sempre eps = 0.05; e fai compenetrare OGNI componente appoggiato sul PCB di 0.05 mm dentro il PCB (es. translate([x, y, pcb_thickness - eps])) per eliminare qualsiasi faccia coplanare.
-2. Tutti i fori passanti in difference() devono partire da z = -0.1 ed avere altezza pcb_thickness + 0.2.
-3. Includi SEMPRE in testa al file i blocchi Customizer:
-   /* [Board Dimensions] */
-   pcb_length, pcb_width, pcb_thickness, corner_radius, hole_diameter, hole_pitch_x, hole_pitch_y, usb_protrusion, display_height
-   /* [Detail & Features] */
-   show_silkscreen = true;
-   show_headers = true;
-   show_components = true;
-   show_display = true;
-   $fn = 36;
-4. Usa chiamate esplicite color("#RRGGBB") su ogni gruppo (PCB, pad rame/oro #d4af37, porta USB-C metallica #c0c7d0, connettori JST #f3f4f6, chip IC #1e242b, display LCD/OLED #0a192f, cornice #111111, serigrafia #f8fafc) per il rendering e l'esportazione .3MF multicolore.
-5. Restituisci SOLO codice OpenSCAD puro e valido, senza blocchi markdown superflui.`;
+const SYSTEM_PROMPT_MANIFOLD = `Sei un Senior CAD Automation Engineer specializzato nella modellazione 3D OpenSCAD ad alta fedeltà di schede elettroniche reali (PCB 3D Mechanical & Visual Models) a partire da fotografie e disegni tecnici quotati.
+
+REGOLE FERREE E TASSATIVE:
+1. ANALISI VISIVA AUTENTICA E FEDELTÀ ALLA FOTO:
+   - Osserva attentamente le immagini allegate nel payload multimodale.
+   - Leggi le quote reali direttamente dalle immagini (es. per un Arduino Uno R3: 68.6 mm × 53.4 mm, oppure le quote esatte stampate sul disegno quotato caricato) e rispetta rigorosamente i parametri confermati dall'utente.
+   - Identifica e modella ESCLUSIVAMENTE i componenti realmente visibili nelle foto caricate, posizionandoli nelle coordinate (X, Y, Z) corrispondenti alla foto reale e con i loro colori realistici:
+     * Esempio se vedi un Arduino Uno R3: PCB blu (#005c99 / #0e6ba8) con la sagoma/spalla caratteristica sul lato destro e 4 fori M3 (3.2 mm), connettore USB-B grande argentato (#cbd5e1) sul lato sinistro superiore, Jack DC cilindrico nero (#171717) sul lato sinistro inferiore, microcontrollore ATmega328P in package DIP-28 lungo nero su zoccolo a 28 pin nel quadrante inferiore destro, pin header femmina neri 2.54mm lungo i bordi superiore e inferiore, header ICSP 2x3 pin, pulsante RESET nell'angolo in alto a sinistra, quarzo metallico ovale 16MHz (#d1d5db), due condensatori elettrolitici cilindrici verticali vicino al jack DC, chip QFN ATmega16U2 vicino alla USB-B, LED SMD e serigrafie bianche ("ARDUINO", "UNO", "DIGITAL (PWM~)", "POWER", "ANALOG IN", "RESET", "ICSP").
+     * Se vedi un'altra scheda (es. modulo relè, sensore breakout, display TFT, Arduino Nano, ESP32, Raspberry Pi, PCB custom), modella SOLO i componenti effettivamente presenti su quella specifica scheda.
+
+2. ZERO MODULI ESTRANEI (DIVIETO ASSOLUTO DI TEMPLATE PRECONFEZIONATI):
+   - NON includere MAI display IPS/LCD/OLED, slot microSD, connettori JST o moduli ESP32-WROOM se NON sono visibili nelle foto caricate!
+   - Non usare mai template generici di altre schede cambiando solo la scritta serigrafica. Ogni modulo OpenSCAD deve corrispondere a un componente reale visibile nell'immagine allegata.
+
+3. ORIENTAMENTO CORRETTO DEI CONNETTORI VERSO L'ESTERNO:
+   - Tutte le aperture/imbocchi dei connettori periferici (porta USB-B, USB-C, Micro-USB, Jack DC cilindrico di alimentazione, connettori JST, morsettiere, slot microSD, RJ45) devono avere la cavità/apertura rivolta verso il PERIMETRO ESTERNO del PCB (aperta verso l'esterno del bordo su cui il connettore è montato, mai rivolta verso l'interno della scheda!).
+   - Se è presente uno slot microSD senza linguetta sporgente, il suo bordo frontale di inserimento deve essere dritto e a filo con il bordo del PCB.
+
+4. GEOMETRIA 100% MANIFOLD (WATERTIGHT — ZERO FACCE COPLANARI):
+   - Definisci sempre in testa allo script: eps = 0.05;
+   - Ogni componente appoggiato sulla faccia superiore del PCB deve compenetrare nel PCB di 0.05 mm: usa sempre z = pcb_thickness - eps (es. translate([x, y, pcb_thickness - eps])).
+   - Ogni componente o pin sulla faccia inferiore deve compenetrare di +eps dentro z = 0.
+   - Tutti i fori passanti in difference() devono partire da z = -0.1 ed avere altezza pcb_thickness + 0.2 (o più) per tagliare nettamente le superfici senza facce coplanari.
+
+5. PARAMETRI CUSTOMIZER E COLORI SEMANTICI PER .3MF MULTICOLORE:
+   - Includi sempre all'inizio dello script i blocchi Customizer con le variabili principali della scheda:
+     /* [Board Dimensions] */
+     pcb_length = ...;
+     pcb_width = ...;
+     pcb_thickness = ...;
+     corner_radius = ...;
+     hole_diameter = ...;
+     /* [Detail & Features] */
+     show_silkscreen = true;
+     show_headers = true;
+     show_components = true;
+     $fn = 36;
+     eps = 0.05;
+   - Usa chiamate esplicite color("#RRGGBB") su ogni componente (PCB, pad dorati/ramati #d4af37, metalli/USB/quarzo #cbd5e1, plastica nera IC/header/jack #171717, condensatori, serigrafie #f8fafc).
+   - Usa esclusivamente sintassi OpenSCAD nativa valida (module, function, union, difference, intersection, hull, linear_extrude, translate, rotate, scale, mirror, color, cube, cylinder, sphere, circle, square, polygon, text, for, if/else).
+   - Restituisci SOLO il codice OpenSCAD completo e pronto alla compilazione.`;
 
 export class AIService {
   /**
-   * Step 2 del Wizard: Ispeziona le immagini, le note e l'eventuale codice .SCAD di partenza ("Clarification First").
-   * Se mancano misure critiche o parametri per le modifiche richieste, genera la lista mirata di domande con valori precompilati.
+   * Step 2 del Wizard: Ispeziona le immagini caricate (e/o il codice .SCAD esistente).
+   * - Se l'utente parte da foto senza codice .SCAD, richiede obbligatoriamente una API Key AI valida
+   *   e invia le immagini in Base64 al modello multimodale per leggere quote e componenti reali.
+   * - Se manca l'API Key o la chiamata fallisce, lancia un errore esplicito all'utente (zero fallback finti!).
    */
   async analyzeBoardImages({ name, category, preset, notes, images = [], existingScad = '' }) {
     const settings = storageService.getSettings();
     const hasExistingScad = Boolean(existingScad && existingScad.trim().length > 20);
-    const parsedFromNotes = this.extractDimensionsFromNotes(notes, name, category, preset, existingScad);
+    const parsedFromInput = this.extractDimensionsFromNotesAndScad(notes, existingScad);
 
-    // Se l'utente ha configurato una API Key valida e non è in modalità offline, interroga l'AI Vision / Code Analyzer
-    if (settings.aiApiKey && settings.aiProvider !== 'offline') {
-      try {
-        const aiResult = await this.callVisionAnalysisAPI(settings, {
-          name,
-          category,
-          preset,
-          notes,
-          images,
-          existingScad,
-          parsedFromNotes
-        });
-        if (aiResult && Array.isArray(aiResult.questions)) {
-          return aiResult;
-        }
-      } catch (err) {
-        console.warn('[AIService] Chiamata API Vision fallita, attivo analisi parametrica locale:', err);
-      }
+    // Caso A: L'utente ha fornito un codice .SCAD esistente e non ha configurato un'API Key (o è in modalità offline)
+    if (hasExistingScad && (!settings.aiApiKey || settings.aiProvider === 'offline')) {
+      return this.buildScadOnlyClarificationPlan({
+        name,
+        notes,
+        existingScad,
+        parsedFromInput
+      });
     }
 
-    // Analisi intelligente locale / fallback Clarification First
-    return this.buildSmartClarificationPlan({
+    // Caso B: Generazione da Foto / Note -> Richiede API Key AI Vision valida (Zero mock / Zero template ESP32 finti!)
+    if (!settings.aiApiKey || settings.aiProvider === 'offline') {
+      throw new Error(
+        'API Key AI Vision non configurata. Apri le Impostazioni (icona ingranaggio in alto a destra), seleziona Google Gemini o OpenAI e inserisci la tua API Key per analizzare le foto della scheda.'
+      );
+    }
+
+    if (!hasExistingScad && (!images || images.length === 0) && !notes.trim()) {
+      throw new Error(
+        'Carica almeno una foto/disegno quotato della scheda (oppure incolla un codice .SCAD di partenza) prima di avviare l\'analisi.'
+      );
+    }
+
+    // Chiamata autentica all'API Vision multimodale allegando le immagini in Base64
+    return await this.callVisionAnalysisAPI(settings, {
       name,
       category,
       preset,
       notes,
       images,
       existingScad,
-      hasExistingScad,
-      parsedFromNotes
+      parsedFromInput
     });
   }
 
   /**
-   * Estrae eventuali quote già presenti nello script .SCAD di partenza e/o scritte dall'utente nel campo note
+   * Estrae eventuali quote esplicite scritte dall'utente nelle note o presenti nel codice .SCAD di partenza.
+   * NON restituisce alcun template o dimensione hardcodata di altre schede!
    */
-  extractDimensionsFromNotes(notes = '', name = '', category = '', preset = 'auto', existingScad = '') {
-    const text = `${name} ${notes}`.toLowerCase();
-    const defaults = this.getPresetDefaults(preset, category, text);
-    let hasExplicitBoardSize = false;
-    let hasExplicitHolePitch = false;
+  extractDimensionsFromNotesAndScad(notes = '', existingScad = '') {
+    const extracted = {
+      pcb_length: null,
+      pcb_width: null,
+      pcb_thickness: 1.6,
+      corner_radius: 1.5,
+      hole_diameter: 3.2,
+      hole_pitch_x: null,
+      hole_pitch_y: null
+    };
 
-    // 1. Se è presente un codice .SCAD di partenza, legge le variabili reali dallo script!
+    // 1. Legge variabili reali se c'è un codice .SCAD di partenza
     if (existingScad && existingScad.trim().length > 15) {
       const readScadVar = (names) => {
         for (const varName of names) {
@@ -92,373 +130,214 @@ export class AIService {
       const sHoleD = readScadVar(['hole_diameter', 'hole_d', 'mount_hole_d', 'hole_dia']);
       const sPitchX = readScadVar(['hole_pitch_x', 'pitch_x', 'mount_dx', 'hole_dx']);
       const sPitchY = readScadVar(['hole_pitch_y', 'pitch_y', 'mount_dy', 'hole_dy']);
-      const sUsb = readScadVar(['usb_protrusion', 'usb_ext']);
-      const sDispH = readScadVar(['display_height', 'lcd_t', 'disp_h', 'shield_h']);
 
-      if (sLen !== null) { defaults.pcb_length = sLen; hasExplicitBoardSize = true; }
-      if (sWid !== null) { defaults.pcb_width = sWid; hasExplicitBoardSize = true; }
-      if (sThk !== null) defaults.pcb_thickness = sThk;
-      if (sRad !== null) defaults.corner_radius = sRad;
-      if (sHoleD !== null) defaults.hole_diameter = sHoleD;
-      if (sPitchX !== null) { defaults.hole_pitch_x = sPitchX; hasExplicitHolePitch = true; }
-      if (sPitchY !== null) { defaults.hole_pitch_y = sPitchY; hasExplicitHolePitch = true; }
-      if (sUsb !== null) defaults.usb_protrusion = sUsb;
-      if (sDispH !== null) defaults.display_height = sDispH;
-
-      if (hasExplicitBoardSize && !hasExplicitHolePitch) {
-        defaults.hole_pitch_x = Number((defaults.pcb_length - 6.0).toFixed(1));
-        defaults.hole_pitch_y = Number((defaults.pcb_width - 6.0).toFixed(1));
-      }
+      if (sLen !== null) extracted.pcb_length = sLen;
+      if (sWid !== null) extracted.pcb_width = sWid;
+      if (sThk !== null) extracted.pcb_thickness = sThk;
+      if (sRad !== null) extracted.corner_radius = sRad;
+      if (sHoleD !== null) extracted.hole_diameter = sHoleD;
+      if (sPitchX !== null) extracted.hole_pitch_x = sPitchX;
+      if (sPitchY !== null) extracted.hole_pitch_y = sPitchY;
     }
 
-    // 2. Cerca nelle note utente eventuali nuove quote richieste (es. "cambia PCB a 90x55")
-    const dimMatch = text.match(/(\d+(?:[.,]\d+)?)\s*[x×*]\s*(\d+(?:[.,]\d+)?)/i);
+    // 2. Legge eventuali quote esplicite scritte dall'utente nelle note (es. "68.6 x 53.4")
+    const dimMatch = (notes || '').match(/(\d+(?:[.,]\d+)?)\s*(?:mm)?\s*[x×*]\s*(\d+(?:[.,]\d+)?)/i);
     if (dimMatch) {
       const d1 = parseFloat(dimMatch[1].replace(',', '.'));
       const d2 = parseFloat(dimMatch[2].replace(',', '.'));
-      if (d1 >= 10 && d2 >= 10) {
-        defaults.pcb_length = Math.max(d1, d2);
-        defaults.pcb_width = Math.min(d1, d2);
-        hasExplicitBoardSize = true;
+      if (d1 >= 5 && d2 >= 5) {
+        extracted.pcb_length = Math.max(d1, d2);
+        extracted.pcb_width = Math.min(d1, d2);
       }
     }
 
-    // Cerca interasse fori "interasse 80x44"
-    const pitchMatch = text.match(/interasse\s*(\d+(?:[.,]\d+)?)\s*[x×*]\s*(\d+(?:[.,]\d+)?)/i);
+    const pitchMatch = (notes || '').match(/interasse\s*(\d+(?:[.,]\d+)?)\s*[x×*]\s*(\d+(?:[.,]\d+)?)/i);
     if (pitchMatch) {
-      defaults.hole_pitch_x = parseFloat(pitchMatch[1].replace(',', '.'));
-      defaults.hole_pitch_y = parseFloat(pitchMatch[2].replace(',', '.'));
-      hasExplicitHolePitch = true;
-    } else if (hasExplicitBoardSize && !hasExplicitHolePitch) {
-      defaults.hole_pitch_x = Number((defaults.pcb_length - 6.0).toFixed(1));
-      defaults.hole_pitch_y = Number((defaults.pcb_width - 6.0).toFixed(1));
+      extracted.hole_pitch_x = parseFloat(pitchMatch[1].replace(',', '.'));
+      extracted.hole_pitch_y = parseFloat(pitchMatch[2].replace(',', '.'));
     }
 
-    // Cerca spessore PCB
-    const thickMatch = text.match(/spessore\s*(\d+(?:[.,]\d+)?)/i);
+    const thickMatch = (notes || '').match(/spessore\s*(\d+(?:[.,]\d+)?)/i);
     if (thickMatch) {
-      defaults.pcb_thickness = parseFloat(thickMatch[1].replace(',', '.'));
+      extracted.pcb_thickness = parseFloat(thickMatch[1].replace(',', '.'));
     }
 
+    return extracted;
+  }
+
+  /**
+   * Piano di verifica quote quando l'utente parte esclusivamente da un proprio file .SCAD esistente (senza AI)
+   */
+  buildScadOnlyClarificationPlan({ name, existingScad, parsedFromInput }) {
+    const pLen = parsedFromInput.pcb_length ?? 68.6;
+    const pWid = parsedFromInput.pcb_width ?? 53.4;
+    const pThk = parsedFromInput.pcb_thickness ?? 1.6;
+    const pRad = parsedFromInput.corner_radius ?? 1.5;
+    const pHole = parsedFromInput.hole_diameter ?? 3.2;
+
     return {
-      ...defaults,
-      hasExplicitBoardSize,
-      hasExplicitHolePitch
+      needsClarification: false,
+      hasExistingScad: true,
+      detectedComponents: ['Script OpenSCAD fornito dall\'utente'],
+      summary: `Codice OpenSCAD di partenza rilevato (${existingScad.split(/\r?\n/).length} righe, PCB ${pLen} × ${pWid} mm). Verifica o modifica le quote estratte dallo script prima della compilazione 3D:`,
+      questions: [
+        { id: 'pcb_length', label: 'Lunghezza PCB (Asse X)', unit: 'mm', type: 'number', min: 5, max: 400, step: 0.1, suggestedValue: pLen },
+        { id: 'pcb_width', label: 'Larghezza PCB (Asse Y)', unit: 'mm', type: 'number', min: 5, max: 400, step: 0.1, suggestedValue: pWid },
+        { id: 'pcb_thickness', label: 'Spessore Laminato PCB (Asse Z)', unit: 'mm', type: 'number', min: 0.4, max: 5.0, step: 0.1, suggestedValue: pThk },
+        { id: 'hole_diameter', label: 'Diametro Fori di Fissaggio', unit: 'mm', type: 'number', min: 1.0, max: 8.0, step: 0.1, suggestedValue: pHole },
+        { id: 'corner_radius', label: 'Raggio Raccordo Angoli PCB', unit: 'mm', type: 'number', min: 0, max: 20, step: 0.5, suggestedValue: pRad }
+      ]
     };
   }
 
   /**
-   * Valori parametrici realistici in base alla famiglia di scheda
+   * Step 2: Chiamata multimodale autentica (Gemini Vision / OpenAI Vision).
+   * Invia le immagini reali in Base64 e chiede all'AI di leggere le quote stampate nell'immagine
+   * e identificare i componenti effettivamente visibili sulla scheda.
    */
-  getPresetDefaults(preset, category, text = '') {
-    const isDisplay =
-      preset === 'esp32-display' ||
-      category.includes('Display') ||
-      /freenove|2\.8|3\.5|tft|ips|lcd|oled|ili9341|st7789/i.test(text);
+  async callVisionAnalysisAPI(settings, { name, category, notes, images = [], existingScad = '', parsedFromInput }) {
+    const scadContext = existingScad && existingScad.trim()
+      ? `\nCODICE OPENSCAD DI PARTENZA FORNITO DALL'UTENTE:\n${existingScad.slice(0, 6000)}\n`
+      : '';
 
-    const isRelay =
-      preset === 'relay-module' ||
-      category.includes('Relay') ||
-      /rel[eè]|relay|morsett/i.test(text);
+    const notesHint = notes && notes.trim()
+      ? `\nNOTE / ISTRUZIONI DELL'UTENTE: "${notes.trim()}"`
+      : '';
 
-    const isSensor =
-      preset === 'sensor-breakout' ||
-      category.includes('Sensor') ||
-      /bme280|mpu6050|sensore|breakout|ina219/i.test(text);
+    const prompt = `Esamina con estrema attenzione le immagini allegate di questa scheda elettronica (Nome indicato: "${name}", Categoria: "${category}").${notesHint}${scadContext}
 
-    if (isDisplay) {
-      return {
-        archetype: 'esp32-display',
-        pcb_length: 86.0,
-        pcb_width: 50.0,
-        pcb_thickness: 1.6,
-        corner_radius: 3.0,
-        hole_diameter: 3.2,
-        hole_pitch_x: 80.0,
-        hole_pitch_y: 44.0,
-        usb_protrusion: 1.5,
-        display_width: 70.0,
-        display_WidthActive: 57.6,
-        display_height: 3.4,
-        jst_count: 3,
-        has_microsd: true,
-        has_display: true,
-        has_headers: false,
-        pcb_color: '#162238'
-      };
+COMPITO DI ANALISI VISIVA (CLARIFICATION FIRST):
+1. Leggi TUTTE le quote numeriche (in mm o pollici convertiti in mm) direttamente dalle frecce di quotatura o dal testo visibile nell'immagine allegata (ad esempio se nell'immagine sono quotati 68.6mm e 53.4mm per un Arduino Uno R3, usa esattamente 68.6 e 53.4!).
+2. Riconosci il modello esatto della scheda e tutti i componenti realmente presenti nella foto (es. colore e forma del PCB, tipo e posizione del connettore USB-B / USB-C / Micro-USB, eventuale Jack DC cilindrico, chip DIP su zoccolo o SMD QFN/SOIC, pin header femmina o maschi, pulsante RESET, quarzo, condensatori, fori di fissaggio e relative coordinate).
+3. NON inventare componenti che non sono presenti nella foto (non citare mai display IPS, microSD, JST o ESP32 se nella foto c'è un Arduino Uno o un'altra scheda!).
+4. Restituisci un oggetto JSON valido con questa struttura:
+{
+  "needsClarification": true,
+  "boardIdentified": "Nome esatto della scheda riconosciuta dalla foto",
+  "pcbColorHex": "#005c99",
+  "detectedComponents": [
+    "Elenco dettagliato di ogni componente reale visto nella foto con la sua posizione e dimensione stimata in mm"
+  ],
+  "summary": "Sintesi tecnica precisa di ciò che si vede nell'immagine allegata e delle quote lette direttamente dalla foto",
+  "questions": [
+    { "id": "pcb_length", "label": "Lunghezza Totale PCB (letta dalla foto, Asse X)", "unit": "mm", "type": "number", "min": 5, "max": 400, "step": 0.1, "suggestedValue": <numero_letto_dalla_foto> },
+    { "id": "pcb_width", "label": "Larghezza Totale PCB (letta dalla foto, Asse Y)", "unit": "mm", "type": "number", "min": 5, "max": 400, "step": 0.1, "suggestedValue": <numero_letto_dalla_foto> },
+    { "id": "pcb_thickness", "label": "Spessore PCB FR4", "unit": "mm", "type": "number", "min": 0.6, "max": 3.2, "step": 0.1, "suggestedValue": 1.6 },
+    { "id": "hole_diameter", "label": "Diametro Fori di Montaggio", "unit": "mm", "type": "number", "min": 1.5, "max": 6.0, "step": 0.1, "suggestedValue": 3.2 },
+    { "id": "corner_radius", "label": "Raggio Raccordo Angoli PCB", "unit": "mm", "type": "number", "min": 0, "max": 12, "step": 0.5, "suggestedValue": 1.0 }
+  ]
+}
+Puoi aggiungere nell'array "questions" altri 1-3 parametri specifici della scheda vista in foto se sono utili per l'ingombro meccanico (es. sporgenza connettore USB/Jack DC o altezza pin header/zoccolo).`;
+
+    const rawText = await this.invokeMultimodalLLM(settings, prompt, images, true);
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('L\'API AI Vision non ha restituito un JSON di analisi valido. Riprova o verifica il modello selezionato nelle Impostazioni.');
     }
 
-    if (isRelay) {
-      return {
-        archetype: 'relay-module',
-        pcb_length: 51.0,
-        pcb_width: 39.0,
-        pcb_thickness: 1.6,
-        corner_radius: 2.0,
-        hole_diameter: 3.1,
-        hole_pitch_x: 45.0,
-        hole_pitch_y: 33.5,
-        usb_protrusion: 0.0,
-        display_width: 0.0,
-        display_height: 15.5,
-        jst_count: 1,
-        has_microsd: false,
-        has_display: false,
-        has_headers: true,
-        pcb_color: '#14532d'
-      };
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Se l'utente aveva già scritto esplicitamente delle quote nelle note, assicuriamoci che siano proposte
+    if (Array.isArray(parsed.questions)) {
+      for (const q of parsed.questions) {
+        if (q.id === 'pcb_length' && parsedFromInput.pcb_length !== null && (!q.suggestedValue || q.suggestedValue <= 0)) {
+          q.suggestedValue = parsedFromInput.pcb_length;
+        }
+        if (q.id === 'pcb_width' && parsedFromInput.pcb_width !== null && (!q.suggestedValue || q.suggestedValue <= 0)) {
+          q.suggestedValue = parsedFromInput.pcb_width;
+        }
+      }
     }
 
-    if (isSensor) {
-      return {
-        archetype: 'sensor-breakout',
-        pcb_length: 25.4,
-        pcb_width: 17.8,
-        pcb_thickness: 1.6,
-        corner_radius: 1.5,
-        hole_diameter: 2.6,
-        hole_pitch_x: 20.0,
-        hole_pitch_y: 12.5,
-        usb_protrusion: 0.0,
-        display_width: 0.0,
-        display_height: 2.5,
-        jst_count: 1,
-        has_microsd: false,
-        has_display: false,
-        has_headers: true,
-        pcb_color: '#1e3a8a'
-      };
-    }
-
-    // Default: ESP32 / MCU DevKit
     return {
-      archetype: 'esp32-devkit',
-      pcb_length: 54.6,
-      pcb_width: 27.9,
-      pcb_thickness: 1.6,
-      corner_radius: 1.5,
-      hole_diameter: 2.6,
-      hole_pitch_x: 49.0,
-      hole_pitch_y: 23.0,
-      usb_protrusion: 1.4,
-      display_width: 0.0,
-      display_height: 3.2,
-      jst_count: 0,
-      has_microsd: false,
-      has_display: false,
-      has_headers: true,
-      pcb_color: '#155e38'
+      ...parsed,
+      hasExistingScad: Boolean(existingScad && existingScad.trim().length > 20)
     };
   }
 
   /**
-   * Costruisce il piano Clarification First con i campi mancanti o da confermare
+   * Step 3 del Wizard: Genera o modifica lo script OpenSCAD 100% manifold.
+   * Allega SEMPRE le immagini originali in Base64 insieme alle quote confermate e alla lista componenti rilevati nello Step 2!
    */
-  buildSmartClarificationPlan({
+  async generateOpenSCAD({
     name,
     category,
     preset,
     notes,
+    parameters,
     images = [],
     existingScad = '',
-    hasExistingScad = false,
-    parsedFromNotes
+    analysisContext = null
   }) {
-    const d = parsedFromNotes;
-    const allSpecified = d.hasExplicitBoardSize && d.hasExplicitHolePitch;
-
-    const questions = [
-      {
-        id: 'pcb_length',
-        label: 'Lunghezza PCB (Asse X)',
-        unit: 'mm',
-        type: 'number',
-        min: 10,
-        max: 300,
-        step: 0.1,
-        suggestedValue: d.pcb_length
-      },
-      {
-        id: 'pcb_width',
-        label: 'Larghezza PCB (Asse Y)',
-        unit: 'mm',
-        type: 'number',
-        min: 10,
-        max: 250,
-        step: 0.1,
-        suggestedValue: d.pcb_width
-      },
-      {
-        id: 'pcb_thickness',
-        label: 'Spessore Laminato FR4',
-        unit: 'mm',
-        type: 'number',
-        min: 0.6,
-        max: 3.2,
-        step: 0.1,
-        suggestedValue: d.pcb_thickness
-      },
-      {
-        id: 'hole_pitch_x',
-        label: 'Interasse Fori Fissaggio X',
-        unit: 'mm',
-        type: 'number',
-        min: 5,
-        max: 290,
-        step: 0.1,
-        suggestedValue: d.hole_pitch_x
-      },
-      {
-        id: 'hole_pitch_y',
-        label: 'Interasse Fori Fissaggio Y',
-        unit: 'mm',
-        type: 'number',
-        min: 5,
-        max: 240,
-        step: 0.1,
-        suggestedValue: d.hole_pitch_y
-      },
-      {
-        id: 'hole_diameter',
-        label: 'Diametro Fori Montaggio (M2.5 / M3)',
-        unit: 'mm',
-        type: 'number',
-        min: 1.5,
-        max: 6.0,
-        step: 0.1,
-        suggestedValue: d.hole_diameter
-      },
-      {
-        id: 'corner_radius',
-        label: 'Raggio Raccordo Angoli PCB',
-        unit: 'mm',
-        type: 'number',
-        min: 0,
-        max: 12,
-        step: 0.5,
-        suggestedValue: d.corner_radius
-      },
-      {
-        id: 'usb_protrusion',
-        label: 'Sporgenza Connettore USB-C oltre bordo',
-        unit: 'mm',
-        type: 'number',
-        min: 0,
-        max: 5,
-        step: 0.1,
-        suggestedValue: d.usb_protrusion
-      },
-      {
-        id: 'display_height',
-        label: 'Spessore Modulo Top (Display / Relè / Shield)',
-        unit: 'mm',
-        type: 'number',
-        min: 1.0,
-        max: 25.0,
-        step: 0.2,
-        suggestedValue: d.display_height
-      }
-    ];
-
-    const imgCount = images.length;
-    const summary = hasExistingScad
-      ? `Codice OpenSCAD di partenza rilevato (${existingScad.split(/\r?\n/).length} righe, PCB ${d.pcb_length} × ${d.pcb_width} mm). Verifica o modifica le quote qui sotto prima di applicare le modifiche richieste e compilare in 3D:`
-      : allSpecified
-        ? `Quote principali rilevate dalle note (${d.pcb_length} × ${d.pcb_width} mm). Verifica o conferma i parametri di dettaglio prima della compilazione 3D.`
-        : `Ispezionate ${imgCount} immagini per "${name || 'Nuova Scheda PCB'}". Per garantire un modello 3D accurato per Fusion 360, conferma o correggi le misure critiche precompilate qui sotto:`;
-
-    return {
-      needsClarification: !allSpecified && !hasExistingScad,
-      hasExistingScad: Boolean(hasExistingScad),
-      archetype: d.archetype,
-      summary,
-      questions
-    };
-  }
-
-  /**
-   * Chiamata fetch multimodale (Gemini o OpenAI Vision) per Step 2
-   */
-  async callVisionAnalysisAPI(settings, { name, category, preset, notes, images, existingScad = '', parsedFromNotes }) {
-    const scadContext = existingScad && existingScad.trim()
-      ? `\nCODICE OPENSCAD ESISTENTE FORNITO DALL'UTENTE:\n${existingScad.slice(0, 6000)}\n`
-      : '';
-    const prompt = `Analizza questa scheda elettronica ("${name}", categoria: "${category}", note/modifiche richieste dall'utente: "${notes}").${scadContext}
-Se mancano misure critiche per costruire o modificare il modello CAD 3D (lunghezza PCB, larghezza PCB, spessore, interasse fori, diametro fori, sporgenza USB, altezza componente principale), restituisci un JSON valido con questa struttura esatta:
-{
-  "needsClarification": true,
-  "archetype": "${parsedFromNotes.archetype}",
-  "summary": "Breve sintesi dei componenti/codice rilevati e delle modifiche che verranno applicate",
-  "questions": [
-    { "id": "pcb_length", "label": "Lunghezza PCB (Asse X)", "unit": "mm", "type": "number", "min": 10, "max": 300, "step": 0.1, "suggestedValue": ${parsedFromNotes.pcb_length} },
-    { "id": "pcb_width", "label": "Larghezza PCB (Asse Y)", "unit": "mm", "type": "number", "min": 10, "max": 250, "step": 0.1, "suggestedValue": ${parsedFromNotes.pcb_width} },
-    { "id": "pcb_thickness", "label": "Spessore PCB", "unit": "mm", "type": "number", "min": 0.6, "max": 3.2, "step": 0.1, "suggestedValue": ${parsedFromNotes.pcb_thickness} },
-    { "id": "hole_pitch_x", "label": "Interasse Fori X", "unit": "mm", "type": "number", "min": 5, "max": 290, "step": 0.1, "suggestedValue": ${parsedFromNotes.hole_pitch_x} },
-    { "id": "hole_pitch_y", "label": "Interasse Fori Y", "unit": "mm", "type": "number", "min": 5, "max": 240, "step": 0.1, "suggestedValue": ${parsedFromNotes.hole_pitch_y} },
-    { "id": "hole_diameter", "label": "Diametro Fori M3", "unit": "mm", "type": "number", "min": 1.5, "max": 6.0, "step": 0.1, "suggestedValue": ${parsedFromNotes.hole_diameter} },
-    { "id": "corner_radius", "label": "Raggio Angoli PCB", "unit": "mm", "type": "number", "min": 0, "max": 10, "step": 0.5, "suggestedValue": ${parsedFromNotes.corner_radius} },
-    { "id": "usb_protrusion", "label": "Sporgenza USB-C", "unit": "mm", "type": "number", "min": 0, "max": 5, "step": 0.1, "suggestedValue": ${parsedFromNotes.usb_protrusion} },
-    { "id": "display_height", "label": "Altezza Display/Componente Top", "unit": "mm", "type": "number", "min": 1, "max": 25, "step": 0.2, "suggestedValue": ${parsedFromNotes.display_height} }
-  ]
-}`;
-
-    const rawText = await this.invokeMultimodalLLM(settings, prompt, images, true);
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Risposta JSON AI non valida');
-    return JSON.parse(jsonMatch[0]);
-  }
-
-  /**
-   * Step 3 del Wizard: Genera o modifica lo script OpenSCAD 100% manifold
-   */
-  async generateOpenSCAD({ name, category, preset, notes, parameters, images = [], existingScad = '' }) {
     const settings = storageService.getSettings();
     const hasExistingScad = Boolean(existingScad && existingScad.trim().length > 20);
 
-    if (settings.aiApiKey && settings.aiProvider !== 'offline') {
-      try {
-        const userPrompt = hasExistingScad
-          ? `Parti da questo script OpenSCAD esistente per la scheda "${name}" (${category}) e implementa TUTTE le modifiche richieste dall'utente mantenendo lo stile, i moduli esistenti e garantendo una mesh 100% manifold (watertight, eps = 0.05 mm).
+    // Se l'utente è in modalità offline e ha fornito un proprio script .SCAD esistente, applica le modifiche locali allo script
+    if (hasExistingScad && (!settings.aiApiKey || settings.aiProvider === 'offline')) {
+      return this.applyModificationsToExistingScad(existingScad, parameters, notes, name);
+    }
 
+    if (!settings.aiApiKey || settings.aiProvider === 'offline') {
+      throw new Error(
+        'API Key AI non configurata. Configura una API Key valida (Gemini o OpenAI) nelle Impostazioni per generare lo script OpenSCAD dalle foto.'
+      );
+    }
+
+    const detectedSummary = analysisContext
+      ? `\nSCHEDA RICONOSCIUTA NELLO STEP 2: ${analysisContext.boardIdentified || name}
+COLORE PCB RILEVATO: ${analysisContext.pcbColorHex || 'come da foto'}
+SINTESI VISIVA: ${analysisContext.summary || ''}
+COMPONENTI REALI RILEVATI NELLA FOTO (MODELLA SOLO QUESTI, NESSUN COMPONENTE ESTRANEO!):
+${(analysisContext.detectedComponents || []).map((c) => `- ${c}`).join('\n')}\n`
+      : '';
+
+    const userPrompt = hasExistingScad
+      ? `Parti da questo script OpenSCAD esistente per la scheda "${name}" (${category}) e implementa TUTTE le modifiche richieste dall'utente mantenendo lo stile, i moduli esistenti e garantendo una mesh 100% manifold (watertight, eps = 0.05 mm).
+${detectedSummary}
 MODIFICHE RICHIESTE DALL'UTENTE:
 ${notes || 'Aggiorna le quote secondo i parametri confermati e verifica che sia 100% manifold.'}
 
-PARAMETRI E QUOTE CONFERMATE:
+PARAMETRI E QUOTE CONFERMATE DALL'UTENTE:
 ${JSON.stringify(parameters, null, 2)}
 
 CODICE OPENSCAD DI PARTENZA DA MODIFICARE:
 ${existingScad}`
-          : `Genera uno script OpenSCAD 100% manifold (watertight, eps = 0.05 mm) per la scheda "${name}" (${category}).
-Parametri confermati dall'utente:
+      : `Osserva attentamente le immagini allegate della scheda "${name}" (${category}) e genera lo script OpenSCAD 3D parametrico completo e 100% manifold (watertight, eps = 0.05 mm) che riproduce FEDELMENTE la scheda mostrata nella foto.
+${detectedSummary}
+PARAMETRI E QUOTE CONFERMATE DALL'UTENTE (USA ESATTAMENTE QUESTE MISURE IN TESTA ALLO SCRIPT):
 ${JSON.stringify(parameters, null, 2)}
-Note tecniche: ${notes || 'Standard PCB'}
-Includi PCB con angoli arrotondati, 4 fori M3 con pad ramati, porta USB-C con linguetta interna, connettori JST con pin dorati, slot microSD, pulsanti RESET/BOOT, modulo MCU QFN/WROOM, condensatori/resistenze SMD, eventuale display IPS/OLED e serigrafie bianche controllate da show_silkscreen e show_headers.`;
 
-        const aiCode = await this.invokeMultimodalLLM(settings, `${SYSTEM_PROMPT_MANIFOLD}\n\n${userPrompt}`, images, false);
-        const cleaned = this.extractCleanScadCode(aiCode);
-        if (cleaned && cleaned.length > 60) {
-          return this.ensureManifoldCompliance(cleaned, parameters, name);
-        }
-      } catch (err) {
-        console.warn('[AIService] Generazione/Modifica LLM remota non disponibile, applico motore parametrico locale:', err);
-      }
+NOTE UTENTE:
+${notes || 'Riproduci fedelmente la scheda, la forma del PCB, i fori di fissaggio e tutti i componenti visibili nella foto.'}
+
+VERIFICA FINALE PRIMA DI SCRIVERE IL CODICE:
+1. Le dimensioni pcb_length (${parameters.pcb_length} mm) e pcb_width (${parameters.pcb_width} mm) devono corrispondere esattamente ai parametri confermati.
+2. Modella SOLO i componenti realmente visibili nella foto allegata, nella loro posizione, forma e colore reale. NON inserire MAI display IPS, microSD, connettori JST o moduli ESP32 se non sono visibili nella foto!
+3. Tutti i connettori sul bordo (es. USB-B, USB-C, Jack DC cilindrico, ecc.) devono avere l'imbocco/apertura rivolto verso l'ESTERNO del perimetro del PCB.
+4. Ogni componente appoggiato sul PCB deve partire da z = pcb_thickness - eps (con eps = 0.05) per garantire una mesh 100% manifold senza facce coplanari.
+5. Chiudi correttamente tutte le parentesi graffe { } e restituisci esclusivamente il codice OpenSCAD completo.`;
+
+    const aiCode = await this.invokeMultimodalLLM(
+      settings,
+      `${SYSTEM_PROMPT_MANIFOLD}\n\n${userPrompt}`,
+      images,
+      false
+    );
+
+    const cleaned = this.extractCleanScadCode(aiCode);
+    if (!cleaned || cleaned.length < 40) {
+      throw new Error('Il modello AI ha restituito uno script OpenSCAD vuoto o incompleto.');
     }
 
-    // Se l'utente è partito da un codice .SCAD esistente, applica le modifiche parametriche/testuali direttamente al suo script!
-    if (hasExistingScad) {
-      return this.applyModificationsToExistingScad(existingScad, parameters, notes, name);
-    }
-
-    return this.buildParametricManifoldScad({ name, category, preset, notes, parameters });
+    return this.ensureManifoldCompliance(cleaned);
   }
 
   /**
-   * Applica le quote confermate e le modifiche richieste in modo non distruttivo su uno script .SCAD esistente
+   * Applica le quote confermate e le modifiche richieste in modo non distruttivo su uno script .SCAD esistente dell'utente
    */
   applyModificationsToExistingScad(existingScad, parameters = {}, notes = '', name = 'Custom PCB') {
     let code = existingScad;
 
-    // Mappa tra i parametri standard del Wizard e gli alias comuni usati negli script OpenSCAD (es. pcb_l, pcb_w, pcb_t, corner_r, hole_d)
     const aliasGroups = {
       pcb_length: ['pcb_length', 'pcb_l', 'pcb_x', 'board_length', 'board_l', 'board_x', 'length', 'L'],
       pcb_width: ['pcb_width', 'pcb_w', 'pcb_y', 'board_width', 'board_w', 'board_y', 'width', 'W'],
@@ -482,7 +361,6 @@ Includi PCB con angoli arrotondati, 4 fori M3 con pad ramati, porta USB-C con li
       }
     }
 
-    // Se nelle note l'utente chiede di disattivare/attivare serigrafie, pin header o display
     if (/senza\s+serigraf|nascondi\s+serigraf|no\s+silkscreen/i.test(notes)) {
       code = code.replace(/(^\s*show_silkscreen\s*=\s*)(true|false)/m, '$1false');
     } else if (/mostra\s+serigraf|attiva\s+serigraf/i.test(notes)) {
@@ -495,317 +373,56 @@ Includi PCB con angoli arrotondati, 4 fori M3 con pad ramati, porta USB-C con li
       code = code.replace(/(^\s*show_headers\s*=\s*)(true|false)/m, '$1false');
     }
 
-    // Se nelle note l'utente specifica un colore PCB (es. "colore PCB rosso" / "PCB verde" / "PCB nero" / "#...")
-    const hexMatch = notes.match(/colore\s+pcb\s+(#[0-9a-fA-F]{6})/i);
-    if (hexMatch) {
-      code = code.replace(/(module\s+pcb_substrate[\s\S]{0,120}?color\(")([^"]+)("\))/i, `$1${hexMatch[1]}$3`);
-    }
-
-    // Aggiunge un commento di audit delle modifiche in testa allo script
     if (notes && notes.trim()) {
       const cleanNote = notes.trim().replace(/\r?\n/g, ' | ');
       code = `// [Board2CAD Modified Script] Scheda: ${name}\n// Modifiche applicate: ${cleanNote}\n` + code;
     }
 
-    return this.ensureManifoldCompliance(code, parameters, name);
+    return this.ensureManifoldCompliance(code);
   }
 
   /**
-   * Loop di Auto-Fix (max 2 tentativi) se il compilatore segnala warning/errori non-manifold
+   * Loop di Auto-Fix (max 2 tentativi) se il compilatore OpenSCAD restituisce un vero errore di sintassi/compilazione
    */
-  async autoFixManifoldScript(scadCode, compilerError, parameters = {}, name = 'Board') {
+  async autoFixManifoldScript(scadCode, compilerError, parameters = {}, name = 'Board', images = []) {
     const settings = storageService.getSettings();
 
     if (settings.aiApiKey && settings.aiProvider !== 'offline' && compilerError) {
       try {
         const fixPrompt = `${SYSTEM_PROMPT_MANIFOLD}
-Lo script OpenSCAD seguente ha generato questo errore/warning di compilazione o non-manifold:
-ERRORE: ${compilerError}
 
-Correggi lo script assicurando eps = 0.05 mm su tutte le unioni e difference() passanti e restituisci solo il codice .scad corretto:
+Lo script OpenSCAD seguente per la scheda "${name}" ha generato questo errore nel compilatore OpenSCAD:
+ERRORE COMPILATORE: ${compilerError}
+
+Correggi l'errore di sintassi o geometria mantenendo intatti tutti i componenti e le dimensioni della scheda (${JSON.stringify(parameters)}), assicurando eps = 0.05 mm su tutte le unioni e restituendo SOLO il codice .scad completo e corretto:
 
 ${scadCode}`;
-        const rawFixed = await this.invokeMultimodalLLM(settings, fixPrompt, [], false);
+        const rawFixed = await this.invokeMultimodalLLM(settings, fixPrompt, images, false);
         const cleaned = this.extractCleanScadCode(rawFixed);
-        if (cleaned && cleaned.length > 120) {
-          return this.ensureManifoldCompliance(cleaned, parameters, name);
+        if (cleaned && cleaned.length > 60) {
+          return this.ensureManifoldCompliance(cleaned);
         }
       } catch (e) {
-        console.warn('[AIService] Auto-Fix AI fallback a riparazione geometrica deterministica:', e);
+        console.warn('[AIService] Auto-Fix AI call error:', e);
       }
     }
 
-    return this.ensureManifoldCompliance(scadCode, parameters, name);
+    return this.ensureManifoldCompliance(scadCode);
   }
 
   /**
-   * Riparazione deterministica per garantire 100% manifold (eps = 0.05 mm e Customizer tags)
+   * Garantisce la presenza di eps = 0.05 e la compenetrazione non-coplanare senza mai sostituire lo script
    */
-  ensureManifoldCompliance(scadCode, parameters = {}, name = 'Custom PCB') {
+  ensureManifoldCompliance(scadCode) {
     let code = (scadCode || '').trim();
-    if (!code) {
-      return this.buildParametricManifoldScad({ name, category: 'Custom PCB', preset: 'auto', notes: '', parameters });
-    }
+    if (!code) return '';
 
-    // Assicura definizione di eps = 0.05;
-    if (!/\beps\s*=\s*0\.05\s*;/.test(code)) {
+    if (!/\beps\s*=\s*[0-9.]+\s*;/.test(code)) {
       code = `eps = 0.05;\n` + code;
     }
 
-    // Sostituisce eventuali traslazioni coplanari esatte sul top PCB con pcb_thickness - eps
     code = code.replace(/translate\(\[([^\]]+),\s*pcb_thickness\s*\]\)/g, 'translate([$1, pcb_thickness - eps])');
-
     return code;
-  }
-
-  /**
-   * Generatore Parametrico OpenSCAD 100% Manifold ad alto dettaglio
-   */
-  buildParametricManifoldScad({ name = 'Custom PCB 3D', category = 'HMI / Display MCU', preset = 'auto', notes = '', parameters = {} }) {
-    const p = {
-      pcb_length: Number(parameters.pcb_length ?? 86.0),
-      pcb_width: Number(parameters.pcb_width ?? 50.0),
-      pcb_thickness: Number(parameters.pcb_thickness ?? 1.6),
-      corner_radius: Number(parameters.corner_radius ?? 3.0),
-      hole_diameter: Number(parameters.hole_diameter ?? 3.2),
-      hole_pitch_x: Number(parameters.hole_pitch_x ?? 80.0),
-      hole_pitch_y: Number(parameters.hole_pitch_y ?? 44.0),
-      usb_protrusion: Number(parameters.usb_protrusion ?? 1.5),
-      display_height: Number(parameters.display_height ?? 3.4)
-    };
-
-    const isDisplay =
-      preset === 'esp32-display' ||
-      category.includes('Display') ||
-      /display|tft|ips|lcd|oled|freenove|2\.8/i.test(`${name} ${notes}`);
-
-    const safeTitle = (name || 'BOARD2CAD').replace(/[^a-zA-Z0-9 _.-]/g, '').slice(0, 26).toUpperCase();
-
-    return `// ============================================================================
-// Board2CAD — Parametric 100% Manifold OpenSCAD Model
-// Board: ${name}
-// Category: ${category}
-// Watertight Guarantee: eps = 0.05 mm overlap on all mating surfaces
-// ============================================================================
-
-/* [Board Dimensions] */
-pcb_length     = ${p.pcb_length.toFixed(1)}; // [20:0.5:250]
-pcb_width      = ${p.pcb_width.toFixed(1)}; // [15:0.5:200]
-pcb_thickness  = ${p.pcb_thickness.toFixed(1)}; // [0.8:0.1:3.2]
-corner_radius  = ${p.corner_radius.toFixed(1)}; // [0.5:0.5:10]
-hole_diameter  = ${p.hole_diameter.toFixed(1)}; // [2.0:0.1:5.0]
-hole_pitch_x   = ${p.hole_pitch_x.toFixed(1)}; // [10:0.5:240]
-hole_pitch_y   = ${p.hole_pitch_y.toFixed(1)}; // [10:0.5:190]
-usb_protrusion = ${p.usb_protrusion.toFixed(1)}; // [0.0:0.1:4.0]
-display_height = ${p.display_height.toFixed(1)}; // [1.0:0.2:18.0]
-
-/* [Detail & Features] */
-show_silkscreen = true;
-show_headers    = true;
-show_components = true;
-show_display    = ${isDisplay ? 'true' : 'false'};
-$fn             = 36;
-
-/* [Internal Manifold Epsilon] */
-eps = 0.05;
-
-// Posizioni dei 4 fori di fissaggio simmetrici rispetto al centro scheda
-hole_x0 = (pcb_length - hole_pitch_x) / 2;
-hole_x1 = pcb_length - hole_x0;
-hole_y0 = (pcb_width - hole_pitch_y) / 2;
-hole_y1 = pcb_width - hole_y0;
-
-module rounded_board_2d(L, W, R) {
-    r_clamped = min(R, min(L, W) / 4);
-    hull() {
-        translate([r_clamped, r_clamped]) circle(r = r_clamped);
-        translate([L - r_clamped, r_clamped]) circle(r = r_clamped);
-        translate([L - r_clamped, W - r_clamped]) circle(r = r_clamped);
-        translate([r_clamped, W - r_clamped]) circle(r = r_clamped);
-    }
-}
-
-module pcb_substrate() {
-    color("#162238")
-    difference() {
-        linear_extrude(height = pcb_thickness)
-            rounded_board_2d(pcb_length, pcb_width, corner_radius);
-
-        for (hx = [hole_x0, hole_x1], hy = [hole_y0, hole_y1]) {
-            translate([hx, hy, -0.15])
-                cylinder(d = hole_diameter, h = pcb_thickness + 0.30);
-        }
-    }
-
-    // Pad anulari ramati/dorati M3 (compenetrati di eps = 0.05 mm)
-    color("#d4af37")
-    for (hx = [hole_x0, hole_x1], hy = [hole_y0, hole_y1]) {
-        difference() {
-            translate([hx, hy, -eps])
-                cylinder(d = hole_diameter + 2.6, h = pcb_thickness + 2 * eps);
-            translate([hx, hy, -0.2])
-                cylinder(d = hole_diameter, h = pcb_thickness + 0.4);
-        }
-    }
-}
-
-module usb_c_receptacle() {
-    usb_w = 8.94;
-    usb_l = 7.35;
-    usb_h = 3.16;
-
-    translate([-usb_protrusion, (pcb_width - usb_w) / 2, pcb_thickness - eps]) {
-        // Guscio metallico esterno incavato
-        color("#c0c7d0")
-        difference() {
-            cube([usb_l, usb_w, usb_h]);
-            translate([-0.15, 0.45, 0.45])
-                cube([usb_l - 1.2, usb_w - 0.9, usb_h - 0.9]);
-        }
-        // Linguetta interna contatti USB-C
-        color("#1e242b")
-        translate([0.6, 1.35, 1.30])
-            cube([usb_l - 1.4, usb_w - 2.7, 0.56]);
-    }
-}
-
-module jst_4pin_connector(x_pos, y_pos) {
-    translate([x_pos, y_pos, -2.8 + eps]) {
-        color("#f1f5f9")
-        difference() {
-            cube([4.4, 7.6, 2.8]);
-            translate([-0.1, 0.6, 0.4])
-                cube([3.2, 6.4, 2.0]);
-        }
-        color("#d4af37")
-        for (i = [0:3]) {
-            translate([0.8, 1.4 + i * 1.6, 1.1])
-                cube([2.8, 0.45, 0.45]);
-        }
-    }
-}
-
-module microsd_push_slot() {
-    translate([pcb_length * 0.42, 1.2, -1.85 + eps]) {
-        color("#cbd5e1")
-        difference() {
-            cube([14.5, 14.8, 1.85]);
-            translate([1.0, -0.1, 0.25])
-                cube([12.5, 12.0, 1.35]);
-        }
-    }
-}
-
-module tactile_buttons() {
-    for ( idx = [0, 1] ) {
-        by = pcb_width * 0.22 + idx * 8.5;
-        translate([2.2, by, -1.4 + eps]) {
-            color("#cbd5e1") cube([3.4, 4.2, 1.4]);
-            color("#111827") translate([-0.6, 1.1, 0.25]) cube([0.65, 2.0, 0.9]);
-        }
-    }
-}
-
-module esp32_wroom_soc() {
-    w_l = min(25.5, pcb_length * 0.32);
-    w_w = min(18.0, pcb_width * 0.40);
-    translate([pcb_length * 0.14, (pcb_width - w_w) / 2, -3.1 + eps]) {
-        // Substrate PCB del modulo WROOM
-        color("#111827") cube([w_l, w_w, 0.85]);
-        // Shield RF metallico
-        color("#94a3b8") translate([5.5, 1.2, -2.25 + eps]) cube([w_l - 6.5, w_w - 2.4, 2.3]);
-    }
-}
-
-module smd_components_array() {
-    // Codec Audio ES8311 / Touch IC QFN + induttori e condensatori SMD
-    color("#1e242b")
-    translate([pcb_length * 0.56, pcb_width * 0.55, -0.95 + eps])
-        cube([5.0, 5.0, 0.95]);
-
-    color("#b45309")
-    for (i = [0:5]) {
-        translate([pcb_length * 0.52 + i * 2.8, pcb_width * 0.34, -0.65 + eps])
-            cube([1.6, 0.9, 0.65]);
-    }
-}
-
-module ips_display_assembly() {
-    disp_l = pcb_length * 0.80;
-    disp_w = pcb_width * 0.84;
-    disp_x = (pcb_length - disp_l) / 2;
-    disp_y = (pcb_width - disp_w) / 2;
-
-    translate([disp_x, disp_y, pcb_thickness - eps]) {
-        // Cornice vetro touch FT6336G
-        color("#111111")
-            cube([disp_l, disp_w, display_height]);
-        // Area attiva IPS 2.8" ILI9341V (leggermente sopraelevata di 0.08 mm)
-        color("#0c4a6e")
-        translate([disp_l * 0.08, disp_w * 0.07, display_height - eps])
-            cube([disp_l * 0.84, disp_w * 0.86, 0.12]);
-    }
-}
-
-module optional_pin_headers() {
-    pin_count = max(4, floor((pcb_length - 16) / 2.54));
-    start_x = (pcb_length - (pin_count * 2.54)) / 2;
-
-    for (side_y = [2.2, pcb_width - 4.74]) {
-        color("#1e293b")
-        translate([start_x, side_y, pcb_thickness - eps])
-            cube([pin_count * 2.54, 2.54, 2.5]);
-
-        color("#d4af37")
-        for (i = [0 : pin_count - 1]) {
-            translate([start_x + i * 2.54 + 0.95, side_y + 0.95, pcb_thickness + 2.4 - eps])
-                cube([0.64, 0.64, 6.0]);
-        }
-    }
-}
-
-module pcb_silkscreen_labels() {
-    color("#f8fafc") {
-        translate([pcb_length * 0.5, pcb_width - 2.6, pcb_thickness - eps])
-            linear_extrude(height = 0.12)
-                text("${safeTitle}", size = 2.4, halign = "center", valign = "center");
-
-        translate([pcb_length * 0.5, 2.6, pcb_thickness - eps])
-            linear_extrude(height = 0.12)
-                text("BOARD2CAD MANIFOLD 3D", size = 2.0, halign = "center", valign = "center");
-    }
-}
-
-// ============================================================================
-// Unione Principale 100% Manifold
-// ============================================================================
-union() {
-    pcb_substrate();
-
-    if (show_components) {
-        usb_c_receptacle();
-        tactile_buttons();
-        esp32_wroom_soc();
-        smd_components_array();
-        microsd_push_slot();
-        jst_4pin_connector(pcb_length - 5.2, pcb_width * 0.22);
-        jst_4pin_connector(pcb_length - 5.2, pcb_width * 0.46);
-        jst_4pin_connector(pcb_length - 5.2, pcb_width * 0.70);
-    }
-
-    if (show_display) {
-        ips_display_assembly();
-    }
-
-    if (show_headers) {
-        optional_pin_headers();
-    }
-
-    if (show_silkscreen) {
-        pcb_silkscreen_labels();
-    }
-}
-`;
   }
 
   /**
@@ -818,22 +435,35 @@ union() {
 
   /**
    * Chiamata fetch diretta verso Google Gemini API o OpenAI Chat Completions
+   * Verifica e allega tutte le immagini caricate in Base64 nel payload multimodale!
    */
   async invokeMultimodalLLM(settings, promptText, images = [], expectJson = false) {
     const provider = settings.aiProvider || 'gemini';
     const apiKey = (settings.aiApiKey || '').trim();
-    if (!apiKey) throw new Error('API Key non configurata');
+    if (!apiKey) {
+      throw new Error('API Key AI non configurata nelle Impostazioni.');
+    }
+
+    // Filtra e valida le immagini Base64 caricate dall'utente
+    const validImages = (images || []).filter(
+      (img) => img && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/')
+    );
+
+    console.info(
+      `[AIService] Invio richiesta multimodale a ${provider} (${settings.aiModel}) con ${validImages.length} immagini allegate.`
+    );
 
     if (provider === 'openai') {
       const model = (settings.aiModel || 'gpt-4o').trim();
       const contentParts = [{ type: 'text', text: promptText }];
-      for (const img of images) {
-        if (img.dataUrl) {
-          contentParts.push({
-            type: 'image_url',
-            image_url: { url: img.dataUrl }
-          });
-        }
+      for (const img of validImages) {
+        contentParts.push({
+          type: 'image_url',
+          image_url: {
+            url: img.dataUrl,
+            detail: 'high'
+          }
+        });
       }
 
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -845,26 +475,31 @@ union() {
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: contentParts }],
-          temperature: 0.2,
+          temperature: 0.15,
+          max_tokens: 8192,
           ...(expectJson ? { response_format: { type: 'json_object' } } : {})
         })
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`OpenAI HTTP ${res.status}: ${errText}`);
+        throw new Error(`OpenAI API Error (HTTP ${res.status}): ${errText}`);
       }
       const data = await res.json();
       return data.choices?.[0]?.message?.content || '';
     }
 
-    // Default: Google Gemini API
+    // Default: Google Gemini API (Multimodal Vision + Code Generation)
     const model = (settings.aiModel || 'gemini-2.5-flash').trim();
-    const parts = [{ text: promptText }];
-    for (const img of images) {
-      if (img.dataUrl && img.dataUrl.includes(',')) {
-        const [header, b64] = img.dataUrl.split(',');
-        const mimeMatch = header.match(/data:(.*?);/);
+    const parts = [];
+
+    // Inserisce prima tutte le immagini inline_data Base64 e poi il prompt testuale (best practice Gemini Vision)
+    for (const img of validImages) {
+      const commaIdx = img.dataUrl.indexOf(',');
+      if (commaIdx !== -1) {
+        const header = img.dataUrl.slice(0, commaIdx);
+        const b64 = img.dataUrl.slice(commaIdx + 1).trim();
+        const mimeMatch = header.match(/data:(image\/[a-zA-Z0-9.+-]+);/);
         parts.push({
           inline_data: {
             mime_type: mimeMatch ? mimeMatch[1] : 'image/jpeg',
@@ -874,14 +509,17 @@ union() {
       }
     }
 
+    parts.push({ text: promptText });
+
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts }],
+        contents: [{ role: 'user', parts }],
         generationConfig: {
-          temperature: 0.2,
+          temperature: 0.15,
+          maxOutputTokens: 8192,
           ...(expectJson ? { responseMimeType: 'application/json' } : {})
         }
       })
@@ -889,10 +527,14 @@ union() {
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`Gemini HTTP ${res.status}: ${errText}`);
+      throw new Error(`Gemini API Error (HTTP ${res.status}): ${errText}`);
     }
     const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('\n') || '';
+    const candidate = data.candidates?.[0];
+    if (!candidate || !candidate.content || !Array.isArray(candidate.content.parts)) {
+      throw new Error('Risposta Gemini vuota o bloccata dai filtri.');
+    }
+    return candidate.content.parts.map((p) => p.text || '').join('\n');
   }
 }
 

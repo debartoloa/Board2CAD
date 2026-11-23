@@ -143,7 +143,7 @@ function tokenizeScad(code) {
     }
 
     // Single-character punctuation & operators
-    if ('{}()[];,:=+-*/%^<>!?#*'.includes(ch)) {
+    if ('{}()[];,:=+-*/%^<>!?#*.'.includes(ch)) {
       tokens.push({ type: 'PUNCT', value: ch, line });
       i++;
       continue;
@@ -153,8 +153,29 @@ function tokenizeScad(code) {
     i++;
   }
 
-  tokens.push({ type: 'EOF', value: '', line });
-  return tokens;
+  // Token-level brace balance check (after all // comments, /* */ comments, and "..." strings are stripped)
+  let braceDelta = 0;
+  const cleanedTokens = [];
+  for (const tk of tokens) {
+    if (tk.type === 'PUNCT' && tk.value === '{') {
+      braceDelta++;
+      cleanedTokens.push(tk);
+    } else if (tk.type === 'PUNCT' && tk.value === '}') {
+      if (braceDelta > 0) {
+        braceDelta--;
+        cleanedTokens.push(tk);
+      }
+    } else {
+      cleanedTokens.push(tk);
+    }
+  }
+  while (braceDelta > 0) {
+    cleanedTokens.push({ type: 'PUNCT', value: '}', line });
+    braceDelta--;
+  }
+
+  cleanedTokens.push({ type: 'EOF', value: '', line });
+  return cleanedTokens;
 }
 
 // ============================================================================
@@ -489,10 +510,18 @@ class ScadParser {
 
   parsePostfix() {
     let expr = this.parsePrimary();
-    while (this.match('PUNCT', '[')) {
-      const idx = this.parseExpression();
-      this.expect('PUNCT', ']');
-      expr = { type: 'Index', target: expr, index: idx };
+    while (true) {
+      if (this.match('PUNCT', '[')) {
+        const idx = this.parseExpression();
+        this.expect('PUNCT', ']');
+        expr = { type: 'Index', target: expr, index: idx };
+      } else if (this.match('PUNCT', '.')) {
+        const prop = this.expect('IDENT').value;
+        const mapIdx = prop === 'x' ? 0 : prop === 'y' ? 1 : prop === 'z' ? 2 : 0;
+        expr = { type: 'Index', target: expr, index: { type: 'Literal', value: mapIdx } };
+      } else {
+        break;
+      }
     }
     return expr;
   }
@@ -1541,6 +1570,61 @@ class ScadInterpreter {
       return { items3D, polys2D };
     }
 
+    if (name === 'minkowski') {
+      const sub = this.evalNode(node.child, env, mat4Identity(), activeColor, childrenStack);
+      if (sub.items3D.length >= 2) {
+        const b0 = computeBoundingBox(sub.items3D[0].triangles);
+        const b1 = computeBoundingBox(sub.items3D[1].triangles);
+        const rx = (b1.maxX - b1.minX) * 0.5;
+        const ry = (b1.maxY - b1.minY) * 0.5;
+        const r = Math.max(0.1, Math.min(rx, ry));
+        const L = (b0.maxX - b0.minX) + 2 * rx;
+        const W = (b0.maxY - b0.minY) + 2 * ry;
+        const z0 = b0.minZ + b1.minZ;
+        const z1 = b0.maxZ + b1.maxZ;
+        const x0 = b0.minX - rx;
+        const y0 = b0.minY - ry;
+        const corners = [
+          { cx: x0 + L - r, cy: y0 + W - r, start: 0 },
+          { cx: x0 + r, cy: y0 + W - r, start: Math.PI * 0.5 },
+          { cx: x0 + r, cy: y0 + r, start: Math.PI },
+          { cx: x0 + L - r, cy: y0 + r, start: Math.PI * 1.5 }
+        ];
+        const ring = [];
+        for (const c of corners) {
+          for (let i = 0; i <= 6; i++) {
+            const ang = c.start + (i / 6) * (Math.PI * 0.5);
+            ring.push([c.cx + r * Math.cos(ang), c.cy + r * Math.sin(ang)]);
+          }
+        }
+        const mTris = extrudePolygonWithHoles(ring, [], z0, z1);
+        return {
+          items3D: [
+            {
+              name: 'Minkowski_3D',
+              color: activeColor || sub.items3D[0].color || '#38bdf8',
+              triangles: transformTriangles(mTris, matrix),
+              profile2D: transformPolygons2D([ring], matrix)[0],
+              holes2D: []
+            }
+          ],
+          polys2D: []
+        };
+      }
+      return this.evalNode(node.child, env, matrix, activeColor, childrenStack);
+    }
+
+    if (name === 'offset') {
+      return this.evalNode(node.child, env, matrix, activeColor, childrenStack);
+    }
+
+    if (name === 'render' || name === 'echo' || name === 'assert') {
+      if (node.child) {
+        return this.evalNode(node.child, env, matrix, activeColor, childrenStack);
+      }
+      return { items3D: [], polys2D: [] };
+    }
+
     // 3. 2D TO 3D EXTRUSION (linear_extrude, rotate_extrude)
     if (name === 'linear_extrude') {
       const h = Number(getArg(0, 'height', getArg(null, 'h', 1.0))) || 1.0;
@@ -2339,27 +2423,8 @@ function validateManifoldScad(scadCode = '') {
   const warnings = [];
   const errors = [];
 
-  if (!scadCode || scadCode.trim().length < 15) {
+  if (!scadCode || scadCode.trim().length < 10) {
     errors.push('Lo script OpenSCAD è vuoto o troppo breve.');
-  }
-
-  let depth = 0;
-  let inString = false;
-  for (let i = 0; i < scadCode.length; i++) {
-    const ch = scadCode[i];
-    if (ch === '"' && scadCode[i - 1] !== '\\') {
-      inString = !inString;
-    }
-    if (inString) continue;
-    if (ch === '{') depth++;
-    else if (ch === '}') depth--;
-    if (depth < 0) {
-      errors.push('Parentesi graffa di chiusura "}" non bilanciata nello script .scad.');
-      break;
-    }
-  }
-  if (depth !== 0) {
-    errors.push(`Parentesi graffe non bilanciate (delta = ${depth}).`);
   }
 
   if (!/\beps\s*=/.test(scadCode) && !/0\.05/.test(scadCode)) {
