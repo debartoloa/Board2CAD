@@ -85,15 +85,15 @@ export class AIService {
         return null;
       };
 
-      const sLen = readScadVar(['pcb_length', 'pcb_l', 'board_length', 'board_l', 'length']);
-      const sWid = readScadVar(['pcb_width', 'pcb_w', 'board_width', 'board_w', 'width']);
-      const sThk = readScadVar(['pcb_thickness', 'pcb_t', 'board_thickness', 'board_t', 'thickness']);
-      const sRad = readScadVar(['corner_radius', 'corner_r', 'pcb_r', 'radius']);
-      const sHoleD = readScadVar(['hole_diameter', 'hole_d', 'mount_hole_d']);
-      const sPitchX = readScadVar(['hole_pitch_x', 'pitch_x', 'mount_dx']);
-      const sPitchY = readScadVar(['hole_pitch_y', 'pitch_y', 'mount_dy']);
+      const sLen = readScadVar(['pcb_length', 'pcb_l', 'pcb_x', 'board_length', 'board_l', 'board_x', 'length', 'L']);
+      const sWid = readScadVar(['pcb_width', 'pcb_w', 'pcb_y', 'board_width', 'board_w', 'board_y', 'width', 'W']);
+      const sThk = readScadVar(['pcb_thickness', 'pcb_t', 'pcb_z', 'board_thickness', 'board_t', 'board_z', 'thickness', 'T']);
+      const sRad = readScadVar(['corner_radius', 'corner_r', 'pcb_r', 'board_r', 'radius', 'R']);
+      const sHoleD = readScadVar(['hole_diameter', 'hole_d', 'mount_hole_d', 'hole_dia']);
+      const sPitchX = readScadVar(['hole_pitch_x', 'pitch_x', 'mount_dx', 'hole_dx']);
+      const sPitchY = readScadVar(['hole_pitch_y', 'pitch_y', 'mount_dy', 'hole_dy']);
       const sUsb = readScadVar(['usb_protrusion', 'usb_ext']);
-      const sDispH = readScadVar(['display_height', 'lcd_t', 'disp_h']);
+      const sDispH = readScadVar(['display_height', 'lcd_t', 'disp_h', 'shield_h']);
 
       if (sLen !== null) { defaults.pcb_length = sLen; hasExplicitBoardSize = true; }
       if (sWid !== null) { defaults.pcb_width = sWid; hasExplicitBoardSize = true; }
@@ -254,7 +254,16 @@ export class AIService {
   /**
    * Costruisce il piano Clarification First con i campi mancanti o da confermare
    */
-  buildSmartClarificationPlan({ name, category, preset, notes, images, parsedFromNotes }) {
+  buildSmartClarificationPlan({
+    name,
+    category,
+    preset,
+    notes,
+    images = [],
+    existingScad = '',
+    hasExistingScad = false,
+    parsedFromNotes
+  }) {
     const d = parsedFromNotes;
     const allSpecified = d.hasExplicitBoardSize && d.hasExplicitHolePitch;
 
@@ -451,15 +460,15 @@ Includi PCB con angoli arrotondati, 4 fori M3 con pad ramati, porta USB-C con li
 
     // Mappa tra i parametri standard del Wizard e gli alias comuni usati negli script OpenSCAD (es. pcb_l, pcb_w, pcb_t, corner_r, hole_d)
     const aliasGroups = {
-      pcb_length: ['pcb_length', 'pcb_l', 'board_length', 'board_l'],
-      pcb_width: ['pcb_width', 'pcb_w', 'board_width', 'board_w'],
-      pcb_thickness: ['pcb_thickness', 'pcb_t', 'board_thickness', 'board_t'],
-      corner_radius: ['corner_radius', 'corner_r', 'pcb_r'],
-      hole_diameter: ['hole_diameter', 'hole_d', 'mount_hole_d'],
-      hole_pitch_x: ['hole_pitch_x', 'pitch_x', 'mount_dx'],
-      hole_pitch_y: ['hole_pitch_y', 'pitch_y', 'mount_dy'],
+      pcb_length: ['pcb_length', 'pcb_l', 'pcb_x', 'board_length', 'board_l', 'board_x', 'length', 'L'],
+      pcb_width: ['pcb_width', 'pcb_w', 'pcb_y', 'board_width', 'board_w', 'board_y', 'width', 'W'],
+      pcb_thickness: ['pcb_thickness', 'pcb_t', 'pcb_z', 'board_thickness', 'board_t', 'board_z', 'thickness', 'T'],
+      corner_radius: ['corner_radius', 'corner_r', 'pcb_r', 'board_r', 'radius', 'R'],
+      hole_diameter: ['hole_diameter', 'hole_d', 'mount_hole_d', 'hole_dia'],
+      hole_pitch_x: ['hole_pitch_x', 'pitch_x', 'mount_dx', 'hole_dx'],
+      hole_pitch_y: ['hole_pitch_y', 'pitch_y', 'mount_dy', 'hole_dy'],
       usb_protrusion: ['usb_protrusion', 'usb_ext'],
-      display_height: ['display_height', 'lcd_t', 'disp_h']
+      display_height: ['display_height', 'lcd_t', 'disp_h', 'shield_h']
     };
 
     for (const [paramKey, aliases] of Object.entries(aliasGroups)) {

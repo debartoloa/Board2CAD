@@ -5,6 +5,15 @@ Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.0.0/)
 
 ---
 
+## [v1.2.1] - 2026-11-23
+
+### Fixed
+- **Fix `ReferenceError: hasExistingScad is not defined` in `aiService.js`:**
+  - Aggiunti i parametri `existingScad` e `hasExistingScad` nella firma di `buildSmartClarificationPlan` durante l'analisi del codice `.SCAD` nello Step 2 del Wizard.
+  - Esteso il riconoscimento automatico degli alias delle variabili dimensionali negli script `.scad` (`pcb_l`/`pcb_x`/`L`, `pcb_w`/`pcb_y`/`W`, `pcb_t`/`pcb_z`/`T`, `corner_r`/`R`, `hole_d`).
+
+---
+
 ## [v1.2.0] - 2026-11-23
 
 ### Added
