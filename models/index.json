@@ -1,7 +1,33 @@
 {
   "version": "1.0.0",
-  "updatedAt": "2026-11-23T18:09:08.639Z",
+  "updatedAt": "2026-11-23T18:43:51.506Z",
   "models": [
+    {
+      "slug": "arduino-uno",
+      "name": "Arduino Uno",
+      "category": "MCU Development Board",
+      "dimensions": {
+        "length": 75.1,
+        "width": 53.8,
+        "height": 12.6
+      },
+      "description": "Modello parametrico 3D Arduino Uno (54.6x27.9x11.2 mm) generato con Board2CAD.",
+      "tags": [
+        "OpenSCAD",
+        "Manifold",
+        "STL",
+        "3MF",
+        "MCU"
+      ],
+      "preview": "./models/arduino-uno/preview.png",
+      "files": {
+        "scad": "./models/arduino-uno/model.scad",
+        "stl": "./models/arduino-uno/model.stl",
+        "threemf": "./models/arduino-uno/model.3mf",
+        "meta": "./models/arduino-uno/meta.json"
+      },
+      "updatedAt": "2026-11-23T18:43:51.506Z"
+    },
     {
       "slug": "esp32-custom-module",
       "name": "ESP32 Custom Module",
