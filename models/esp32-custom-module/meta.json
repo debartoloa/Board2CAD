@@ -1,0 +1,26 @@
+{
+  "slug": "esp32-custom-module",
+  "name": "ESP32 Custom Module",
+  "category": "HMI / Display MCU",
+  "description": "Modello parametrico 3D ESP32 Custom Module (60x40x1.6 mm) generato con Board2CAD.",
+  "dimensions": {
+    "length": 62,
+    "width": 27.5,
+    "height": 13.4
+  },
+  "mountingHoles": {
+    "diameter": 3.2,
+    "pitchX": 80,
+    "pitchY": 54
+  },
+  "tags": [
+    "OpenSCAD",
+    "Manifold",
+    "STL",
+    "3MF",
+    "HMI"
+  ],
+  "createdAt": "2026-11-23T18:01:07.288Z",
+  "updatedAt": "2026-11-23T18:01:51.362Z",
+  "hardwareNotes": ""
+}
