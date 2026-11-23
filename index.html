@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="it" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
+  <title>Board2CAD — PCB 3D Parametric Studio</title>
+  <meta name="description" content="PWA per generare modelli 3D parametrici (.scad, .stl, .3mf multicolore) di schede elettroniche da foto e quote con AI Vision, OpenSCAD WASM e Three.js.">
+  <meta name="theme-color" content="#0b1120">
+
+  <!-- iOS Standalone PWA Meta -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Board2CAD">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+
+  <!-- PWA Manifest & Icons -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
+
+  <!-- Stylesheets (Vanilla CSS3) -->
+  <link rel="stylesheet" href="./css/variables.css?v=1.2.0">
+  <link rel="stylesheet" href="./css/main.css?v=1.2.0">
+  <link rel="stylesheet" href="./css/viewer.css?v=1.2.0">
+
+  <!-- ES Module Import Map (Zero Build Step) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/",
+      "jszip": "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app-container">
+    <!-- Sticky Header (compensates iOS Dynamic Island / Safe Area Top) -->
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="brand-group" id="brand-home-btn" role="button" tabindex="0" aria-label="Torna alla libreria modelli">
+          <div class="brand-logo" aria-hidden="true">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2.5" stroke="#34d399"/>
+              <rect x="7.5" y="7.5" width="9" height="9" rx="1.2" stroke="#38bdf8"/>
+              <circle cx="5.5" cy="5.5" r="1" fill="#f59e0b" stroke="none"/>
+              <circle cx="18.5" cy="5.5" r="1" fill="#f59e0b" stroke="none"/>
+              <circle cx="5.5" cy="18.5" r="1" fill="#f59e0b" stroke="none"/>
+              <circle cx="18.5" cy="18.5" r="1" fill="#f59e0b" stroke="none"/>
+            </svg>
+          </div>
+          <div class="brand-titles">
+            <div class="brand-name-row">
+              <span class="brand-name">Board2CAD</span>
+              <span class="version-badge" id="app-version-badge">v1.2.0</span>
+            </div>
+            <span class="brand-subtitle">PCB 3D Parametric Studio · OpenSCAD &amp; 3MF</span>
+          </div>
+        </div>
+
+        <!-- Desktop Navigation Pills -->
+        <nav class="desktop-nav" aria-label="Navigazione principale">
+          <button type="button" class="nav-pill active" data-nav="gallery">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+            <span>Libreria Modelli</span>
+          </button>
+          <button type="button" class="nav-pill" data-nav="wizard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Nuova Scheda 3D</span>
+          </button>
+          <button type="button" class="nav-pill" data-nav="studio">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            <span>Studio 3D &amp; .SCAD</span>
+          </button>
+        </nav>
+
+        <!-- Status & Settings Actions -->
+        <div class="header-actions">
+          <span class="engine-status-pill" id="wasm-status-pill" title="Motore di compilazione 3D client-side">
+            <span class="status-dot online"></span>
+            <span class="status-label">CAD Ready</span>
+          </span>
+          <button type="button" class="icon-btn" id="open-settings-btn" aria-label="Apri impostazioni AI e GitHub" title="Impostazioni AI &amp; GitHub">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="main-content" id="main-content">
+
+      <!-- ================================================================
+           VIEW 1: LIBRERIA MODELLI CONVERTITI (GitHub Repo + IndexedDB)
+           ================================================================ -->
+      <section class="view-section active" id="view-gallery" aria-labelledby="gallery-heading">
+        <div class="hero-banner">
+          <div class="hero-text">
+            <div class="hero-eyebrow">ARCHIVIO CAD PARAMETRICO · MANIFOLD 100%</div>
+            <h1 id="gallery-heading">Libreria Schede Elettroniche 3D</h1>
+            <p>Modelli 3D ad alto dettaglio pronti per <strong>Fusion 360 (.STL)</strong>, slicer multicolore <strong>Bambu / Prusa (.3MF)</strong> e personalizzazione parametrica <strong>OpenSCAD (.SCAD)</strong>.</p>
+          </div>
+          <div class="hero-actions">
+            <button type="button" class="btn btn-primary" id="hero-new-board-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+              <span>Nuova Scheda da Foto / Quote</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbar Filtri & Ricerca -->
+        <div class="gallery-toolbar">
+          <div class="search-box">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="search" id="gallery-search-input" placeholder="Cerca scheda (es. Freenove, ESP32-S3, display, relè...)" aria-label="Cerca modello nella libreria">
+          </div>
+          <div class="filter-chips" role="group" aria-label="Filtra per origine modello">
+            <button type="button" class="chip active" data-filter="all">Tutti (<span id="count-all">0</span>)</button>
+            <button type="button" class="chip" data-filter="repo">Repo GitHub (<span id="count-repo">0</span>)</button>
+            <button type="button" class="chip" data-filter="local">Locale IndexedDB (<span id="count-local">0</span>)</button>
+          </div>
+        </div>
+
+        <!-- Griglia Card Modelli -->
+        <div class="gallery-grid" id="gallery-grid" aria-live="polite">
+          <!-- Populated dynamically by gallery.js -->
+        </div>
+      </section>
+
+      <!-- ================================================================
+           VIEW 2: WIZARD "NUOVA SCHEDA 3D" (3 Step)
+           ================================================================ -->
+      <section class="view-section" id="view-wizard" aria-labelledby="wizard-heading" hidden>
+        <div class="section-header">
+          <div>
+            <span class="section-eyebrow">GENERAZIONE ASSISTITA AI VISION &amp; PARAMETRIC ENGINE</span>
+            <h2 id="wizard-heading">Wizard Nuova Scheda 3D</h2>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="wizard-reset-btn">Ricomincia Wizard</button>
+        </div>
+
+        <!-- Stepper Indicator -->
+        <ol class="wizard-stepper" aria-label="Fasi di generazione">
+          <li class="step-item active" data-step="1">
+            <span class="step-num">1</span>
+            <div class="step-info">
+              <strong>Foto &amp; Dati Base</strong>
+              <span>Immagini PCB e note</span>
+            </div>
+          </li>
+          <li class="step-item" data-step="2">
+            <span class="step-num">2</span>
+            <div class="step-info">
+              <strong>Analisi &amp; Quote</strong>
+              <span>Clarification First AI</span>
+            </div>
+          </li>
+          <li class="step-item" data-step="3">
+            <span class="step-num">3</span>
+            <div class="step-info">
+              <strong>OpenSCAD &amp; Mesh</strong>
+              <span>Auto-Fix, STL &amp; 3MF</span>
+            </div>
+          </li>
+        </ol>
+
+        <!-- STEP 1: Caricamento Immagini e Informazioni -->
+        <div class="wizard-panel active" id="wizard-step-1">
+          <div class="wizard-grid-2col">
+            <!-- Colonna Upload Immagini -->
+            <div class="card">
+              <h3 class="card-title">1. Foto della Scheda / Disegno Quotato</h3>
+              <p class="card-desc">Carica o scatta foto della vista frontale, posteriore o scheda tecnica quotata. L'AI estrarrà layout, connettori e proporzioni.</p>
+
+              <label class="upload-dropzone" id="wizard-dropzone" for="wizard-file-input">
+                <input type="file" id="wizard-file-input" accept="image/*" multiple capture="environment" hidden>
+                <div class="dropzone-icon">
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                </div>
+                <strong>Tocca per scattare foto o trascina immagini qui</strong>
+                <span>Supporta JPG, PNG, WEBP (Fronte, Retro, Quote meccaniche)</span>
+              </label>
+
+              <div class="uploaded-thumbs" id="wizard-thumbs-container"></div>
+
+              <!-- Sezione Codice OpenSCAD di partenza (Opzionale) -->
+              <div class="scad-seed-box" style="margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+                <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;">
+                  <h3 class="card-title" style="margin: 0; font-size: 1rem;">2. Hai già un Codice <code>.SCAD</code> di partenza? (Opzionale)</h3>
+                  <div style="display: flex; gap: 6px;">
+                    <label class="btn btn-secondary btn-xs" for="wizard-scad-file-input" title="Carica un file .scad dal tuo PC">
+                      📂 Carica file .SCAD
+                    </label>
+                    <input type="file" id="wizard-scad-file-input" accept=".scad,text/plain" hidden>
+                    <button type="button" class="btn btn-ghost btn-xs" id="wizard-clear-scad-btn" title="Svuota codice .scad di partenza">
+                      Svuota
+                    </button>
+                  </div>
+                </div>
+                <p class="card-desc" style="margin-bottom: 10px; font-size: 0.82rem;">
+                  Incolla o carica un file <code>.scad</code> che possiedi già: potrai compilarlo direttamente oppure chiedere all'AI di apportare modifiche specifiche (quote, componenti, serigrafie, fix manifold).
+                </p>
+                <textarea
+                  id="wizard-base-scad-input"
+                  class="scad-textarea"
+                  style="min-height: 165px; font-size: 12.5px;"
+                  spellcheck="false"
+                  placeholder="// Incolla qui il tuo codice OpenSCAD (.scad) esistente (opzionale)..."
+                ></textarea>
+              </div>
+            </div>
+
+            <!-- Colonna Informazioni, Richiesta Modifiche & Preset -->
+            <div class="card">
+              <h3 class="card-title">3. Identificazione, Quote &amp; Modifiche Richieste</h3>
+              <div class="form-group">
+                <label for="board-name-input">Nome Scheda Elettronica *</label>
+                <input type="text" id="board-name-input" placeholder="es. ESP32-S3 Custom Display / Modulo Relè v2" required>
+              </div>
+
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="board-category-select">Categoria</label>
+                  <select id="board-category-select">
+                    <option value="HMI / Display MCU">HMI / Display MCU (TFT / OLED)</option>
+                    <option value="MCU Development Board">MCU Development Board (ESP32 / Arduino)</option>
+                    <option value="Relay / Power Module">Modulo Relè / Potenza</option>
+                    <option value="Sensor / Breakout">Sensore / Breakout Board</option>
+                    <option value="Custom PCB">Custom PCB</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="board-preset-select">Modalità / Template Base</label>
+                  <select id="board-preset-select">
+                    <option value="auto">Rilevamento Automatico (Foto o Codice .SCAD)</option>
+                    <option value="from-scad">Parti dal mio Codice .SCAD inserito a sinistra</option>
+                    <option value="esp32-display">Display HMI + ESP32 (USB-C, JST, SD, LCD)</option>
+                    <option value="esp32-devkit">ESP32 / Arduino DevKit (USB-C, 2x Pin Header, WROOM)</option>
+                    <option value="relay-module">Modulo Relè / Attuatore (Morsettiere, Opto, JST)</option>
+                    <option value="sensor-breakout">Sensore Breakout Compatto (QFN, I2C Header, M3)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="board-notes-input">Note Dimensionali o Modifiche da Implementare sul Codice .SCAD</label>
+                <textarea id="board-notes-input" rows="5" placeholder="Se parti da zero: indica dimensioni PCB (es. 86x50 mm), interasse fori, connettori...&#10;Se hai incollato un codice .SCAD: scrivi quali modifiche vuoi implementare (es. 'Cambia PCB a 90x55 mm, sposta la USB-C, aggiungi serigrafia v2.0, correggi compenetrazione manifold 0.05mm')..."></textarea>
+              </div>
+
+              <div class="wizard-actions" style="flex-direction: column;">
+                <button type="button" class="btn btn-primary btn-block" id="wizard-analyze-btn">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  <span>Analizza &amp; Verifica Quote / Modifiche (Step 2)</span>
+                </button>
+                <button type="button" class="btn btn-outline btn-block" id="wizard-direct-compile-scad-btn" title="Compila subito il codice .SCAD inserito e crea il modello 3D (.STL + .3MF) senza modifiche AI">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                  <span>Compila Direttamente il mio .SCAD così com'è (Vai a Step 3)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: Analisi AI & Richiesta Dati Supplementari (Clarification First) -->
+        <div class="wizard-panel" id="wizard-step-2" hidden>
+          <div class="card">
+            <div class="clarification-header">
+              <div>
+                <span class="badge badge-info" id="ai-analysis-mode-badge">Clarification First</span>
+                <h3 class="card-title">Verifica Quote Meccaniche &amp; Componenti Rilevati</h3>
+                <p class="card-desc" id="ai-analysis-summary">Controlla o correggi le misure critiche stimate prima di generare lo script OpenSCAD 100% manifold.</p>
+              </div>
+            </div>
+
+            <!-- Dynamic form generated by AI / Wizard -->
+            <form id="clarification-form" class="clarification-grid">
+              <!-- Populated dynamically by wizard.js -->
+            </form>
+
+            <div class="wizard-actions split">
+              <button type="button" class="btn btn-secondary" id="wizard-back-step1-btn">
+                ← Torna a Foto &amp; Note
+              </button>
+              <button type="button" class="btn btn-primary" id="wizard-generate-scad-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                <span>Genera OpenSCAD + Compila STL &amp; 3MF (Step 3)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 3: Generazione OpenSCAD, Auto-Fix e Compilazione -->
+        <div class="wizard-panel" id="wizard-step-3" hidden>
+          <div class="card">
+            <h3 class="card-title">Pipeline di Generazione CAD &amp; Verifica Manifold</h3>
+            <p class="card-desc">Esecuzione del generatore OpenSCAD con compenetrazione <code>0.05 mm</code>, validazione mesh watertight e compilazione binaria Web Worker.</p>
+
+            <div class="pipeline-log" id="wizard-pipeline-log" role="log" aria-live="polite">
+              <!-- Log items appended here -->
+            </div>
+
+            <div class="wizard-actions split" id="wizard-step3-actions" hidden>
+              <button type="button" class="btn btn-secondary" id="wizard-back-step2-btn">
+                ← Modifica Quote
+              </button>
+              <button type="button" class="btn btn-primary" id="wizard-open-studio-btn">
+                <span>Apri nello Studio 3D &amp; Scarica STL / 3MF →</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           VIEW 3: STUDIO 3D INTERATTIVO, CUSTOMIZER & CODICE .SCAD
+           ================================================================ -->
+      <section class="view-section" id="view-studio" aria-labelledby="studio-model-title" hidden>
+        <!-- Top Bar Studio -->
+        <div class="studio-topbar">
+          <div class="studio-title-group">
+            <button type="button" class="btn btn-ghost btn-sm" id="studio-back-gallery-btn" title="Torna alla Libreria">
+              ← Libreria
+            </button>
+            <div>
+              <div class="studio-title-row">
+                <h2 id="studio-model-title">Freenove ESP32-S3 Display 2.8" (FNK0104B)</h2>
+                <span class="badge badge-emerald" id="studio-manifold-badge">100% Manifold</span>
+                <span class="badge badge-repo" id="studio-source-badge">Repo GitHub</span>
+              </div>
+              <p class="studio-dimensions-label" id="studio-dimensions-label">Ingombro: 86.0 × 50.0 × 11.2 mm · Compilato in STL + 3MF Multicolore</p>
+            </div>
+          </div>
+
+          <!-- Export & Sync Action Buttons -->
+          <div class="studio-export-bar">
+            <button type="button" class="btn btn-outline btn-sm" id="btn-download-stl" title="Scarica mesh .STL per Fusion 360 / CAD">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Scarica .STL</span>
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-download-3mf" title="Scarica pacchetto .3MF multicolore per Bambu Studio / PrusaSlicer">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Scarica .3MF</span>
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-download-scad" title="Scarica sorgente parametrico OpenSCAD (.scad)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              <span>Scarica .SCAD</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-download-zip" title="Scarica archivio .ZIP completo (model.scad, model.stl, model.3mf, preview.png, meta.json)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+              <span>Cartella .ZIP</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-save-local" title="Salva tutte le modifiche (SCAD, STL, 3MF, PNG, META) di questo componente nel browser">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              <span>Salva Modifiche</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-save-disk-folder" title="Scrivi direttamente model.scad, model.stl, model.3mf, preview.png e meta.json nella cartella models/<slug>/ sul tuo PC">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>Salva su Disco</span>
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-push-github" title="Esegui commit diretto in models/<slug>/ sul repository GitHub">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+              <span>Salva su GitHub</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Main Studio Workspace (3D Viewport + Side Inspector) -->
+        <div class="studio-workspace">
+          <!-- Left: 3D Viewport & Fallback Image Container -->
+          <div class="viewer-panel">
+            <div class="viewer-toolbar">
+              <div class="camera-presets" role="group" aria-label="Viste telecamera 3D">
+                <button type="button" class="vp-btn active" data-cam="iso" title="Vista Isometrica">Iso 3D</button>
+                <button type="button" class="vp-btn" data-cam="top" title="Vista Superiore (Top)">Top</button>
+                <button type="button" class="vp-btn" data-cam="front" title="Vista Frontale">Front</button>
+                <button type="button" class="vp-btn" data-cam="bottom" title="Vista Inferiore (Retro PCB)">Bottom</button>
+              </div>
+              <div class="render-toggles">
+                <button type="button" class="vp-btn active" id="toggle-color-mode-btn" title="Alterna vista 3MF Multicolore / STL Monocolore">
+                  3MF Multicolore
+                </button>
+                <button type="button" class="vp-btn" id="toggle-wireframe-btn" title="Mostra/nascondi wireframe mesh">
+                  Wireframe
+                </button>
+                <button type="button" class="vp-btn" id="toggle-grid-btn" title="Mostra/nascondi griglia millimetrata">
+                  Griglia mm
+                </button>
+                <button type="button" class="vp-btn vp-btn-accent" id="capture-png-btn" title="Cattura screenshot PNG (preview.png) dal canvas 3D">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  <span>Cattura PNG</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 3D Canvas Wrapper -->
+            <div class="viewer-stage" id="viewer-canvas-container">
+              <!-- Three.js WebGL Canvas injected here -->
+
+              <!-- Static Fallback Image (shown automatically if WebGL is unavailable or toggled) -->
+              <div class="viewer-fallback" id="viewer-fallback-container" hidden>
+                <div class="fallback-notice">
+                  <span class="badge badge-warning">Modalità Anteprima Statica (Fallback PNG)</span>
+                  <p>Visualizzazione dell'anteprima renderizzata <code>preview.png</code>.</p>
+                </div>
+                <img id="viewer-fallback-img" src="./models/freenove-esp32-s3-2.8/preview.png" alt="Anteprima 3D del modello">
+              </div>
+
+              <!-- Loading / Compiling Overlay -->
+              <div class="viewer-loading-overlay" id="viewer-loading-overlay" hidden>
+                <div class="spinner"></div>
+                <span id="viewer-loading-text">Compilazione OpenSCAD WASM in corso...</span>
+              </div>
+
+              <!-- HUD Overlay Info -->
+              <div class="viewer-hud">
+                <div class="hud-axes">
+                  <span class="axis-x">X: Lunghezza (mm)</span>
+                  <span class="axis-y">Y: Larghezza (mm)</span>
+                  <span class="axis-z">Z: Altezza (mm)</span>
+                </div>
+                <div class="hud-stats" id="viewer-hud-stats">
+                  Triangoli: -- · Vertici: -- · Watertight: SÌ
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Parametric Customizer & .SCAD Code Editor -->
+          <aside class="inspector-panel">
+            <div class="inspector-tabs" role="tablist">
+              <button type="button" class="insp-tab active" data-insp-tab="customizer" role="tab" aria-selected="true">
+                Parametri Customizer
+              </button>
+              <button type="button" class="insp-tab" data-insp-tab="code" role="tab" aria-selected="false">
+                Editor .SCAD
+              </button>
+              <button type="button" class="insp-tab" data-insp-tab="meta" role="tab" aria-selected="false">
+                File &amp; Info (5 File)
+              </button>
+            </div>
+
+            <!-- TAB 1: Parametric Customizer Controls -->
+            <div class="insp-content active" id="insp-tab-customizer">
+              <div class="customizer-header">
+                <p>Modifica i parametri estratti dallo script <code>model.scad</code> e ricompila istantaneamente il rendering 3D.</p>
+                <button type="button" class="btn btn-primary btn-block" id="btn-fast-recompile">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  <span>Ricompilazione Rapida (STL + 3MF)</span>
+                </button>
+              </div>
+              <div class="customizer-controls" id="customizer-controls-container">
+                <!-- Populated dynamically from .scad customizer annotations -->
+              </div>
+            </div>
+
+            <!-- TAB 2: .SCAD Code Editor -->
+            <div class="insp-content" id="insp-tab-code" hidden>
+              <div class="code-editor-toolbar">
+                <span class="code-filename">model.scad</span>
+                <div class="code-actions">
+                  <label class="btn btn-ghost btn-xs" for="upload-scad-input" title="Carica un file .scad dal tuo dispositivo">
+                    Carica .SCAD
+                  </label>
+                  <input type="file" id="upload-scad-input" accept=".scad,text/plain" hidden>
+                  <button type="button" class="btn btn-secondary btn-xs" id="btn-ai-autofix-code" title="Verifica e correggi eventuali non-manifold nello script">
+                    Auto-Fix Manifold
+                  </button>
+                  <button type="button" class="btn btn-primary btn-xs" id="btn-compile-from-editor" title="Compila lo script OpenSCAD e aggiorna la vista 3D (Ctrl+Invio)">
+                    Compila Script
+                  </button>
+                  <button type="button" class="btn btn-outline btn-xs" id="btn-compile-and-save-editor" title="Compila lo script e salva subito tutte le modifiche del componente">
+                    Compila &amp; Salva
+                  </button>
+                </div>
+              </div>
+              <textarea id="scad-code-editor" class="scad-textarea" spellcheck="false" aria-label="Editor codice OpenSCAD"></textarea>
+              <div class="compiler-console" id="compiler-console-output">
+                [OpenSCAD AST CSG Engine] Pronto. Premi "Compila Script" (o Ctrl+Invio) per aggiornare il rendering 3D.
+              </div>
+            </div>
+
+            <!-- TAB 3: Complete Component File Manager (SCAD, STL, 3MF, PNG, META.JSON) -->
+            <div class="insp-content" id="insp-tab-meta" hidden>
+              <div class="meta-details-container" id="studio-meta-details">
+                <!-- Populated dynamically with file uploaders & metadata editor -->
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Fixed Bottom Navigation Bar (Mobile-First, iOS Standalone Safe) -->
+    <nav class="bottom-nav" aria-label="Navigazione mobile">
+      <button type="button" class="bottom-nav-item active" data-nav="gallery">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Libreria</span>
+      </button>
+      <button type="button" class="bottom-nav-item" data-nav="wizard">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <span>Nuova 3D</span>
+      </button>
+      <button type="button" class="bottom-nav-item" data-nav="studio">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        <span>Studio 3D</span>
+      </button>
+      <button type="button" class="bottom-nav-item" id="mobile-settings-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Config</span>
+      </button>
+    </nav>
+
+    <!-- ================================================================
+         MODAL IMPOSTAZIONI (AI Vision API Key & GitHub Sync)
+         ================================================================ -->
+    <div class="modal-backdrop" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" hidden>
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <span class="section-eyebrow">CONFIGURAZIONE LOCALE SICURA (LOCALSTORAGE)</span>
+            <h3 id="settings-modal-title">Impostazioni AI Vision &amp; GitHub Sync</h3>
+          </div>
+          <button type="button" class="icon-btn" id="close-settings-btn" aria-label="Chiudi impostazioni">✕</button>
+        </div>
+
+        <form id="settings-form" class="modal-body">
+          <div class="settings-section">
+            <h4>1. Motore AI Multimodale (Vision &amp; OpenSCAD Generator)</h4>
+            <p class="settings-hint">Le chiavi API vengono salvate solo nel browser (<code>localStorage</code>). Se non inserisci una chiave, Board2CAD usa automaticamente il <strong>Motore Parametrico Intelligente Offline</strong> integrato.</p>
+
+            <div class="form-row-2col">
+              <div class="form-group">
+                <label for="setting-ai-provider">Provider AI</label>
+                <select id="setting-ai-provider">
+                  <option value="gemini">Google Gemini API (Vision + CAD)</option>
+                  <option value="openai">OpenAI API (GPT-4o Vision)</option>
+                  <option value="offline">Motore Parametrico Locale (Offline)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="setting-ai-model">Modello AI</label>
+                <input type="text" id="setting-ai-model" placeholder="gemini-2.5-flash / gpt-4o">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="setting-ai-key">API Key (Gemini o OpenAI)</label>
+              <input type="password" id="setting-ai-key" placeholder="AIzaSy... oppure sk-..." autocomplete="off">
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4>2. Integrazione GitHub Repository (Commit Diretto in <code>models/</code>)</h4>
+            <p class="settings-hint">Configura un Personal Access Token (PAT con permesso <code>contents:write</code>) per salvare direttamente i nuovi modelli generati nella cartella <code>models/&lt;slug&gt;/</code> e aggiornare <code>models/index.json</code>.</p>
+
+            <div class="form-row-2col">
+              <div class="form-group">
+                <label for="setting-gh-owner">GitHub Owner / Organizzazione</label>
+                <input type="text" id="setting-gh-owner" placeholder="es. debartoloa" value="debartoloa">
+              </div>
+              <div class="form-group">
+                <label for="setting-gh-repo">Nome Repository</label>
+                <input type="text" id="setting-gh-repo" placeholder="es. Board2CAD" value="Board2CAD">
+              </div>
+            </div>
+
+            <div class="form-row-2col">
+              <div class="form-group">
+                <label for="setting-gh-branch">Branch Target</label>
+                <input type="text" id="setting-gh-branch" placeholder="main" value="main">
+              </div>
+              <div class="form-group">
+                <label for="setting-gh-token">GitHub Personal Access Token (PAT)</label>
+                <input type="password" id="setting-gh-token" placeholder="ghp_... oppure github_pat_..." autocomplete="off">
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="clear-local-db-btn">Svuota Cache Modelli Locali</button>
+            <div class="modal-footer-right">
+              <button type="button" class="btn btn-secondary" id="cancel-settings-btn">Annulla</button>
+              <button type="submit" class="btn btn-primary">Salva Configurazione</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div class="toast-container" id="toast-container" aria-live="polite"></div>
+  </div>
+
+  <!-- Main Application Entry Point (Vanilla ES6 Module) -->
+  <script type="module" src="./js/app.js?v=1.2.0"></script>
+</body>
+</html>

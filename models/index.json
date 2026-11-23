@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-11-23T18:00:00Z",
+  "models": [
+    {
+      "slug": "freenove-esp32-s3-2.8",
+      "name": "Freenove ESP32-S3 Display 2.8\" IPS (FNK0104B)",
+      "category": "HMI / Display MCU (TFT / OLED)",
+      "dimensions": {
+        "length": 86.0,
+        "width": 50.0,
+        "height": 11.2
+      },
+      "mountingHoles": {
+        "diameter": 3.2,
+        "pitchX": 80.0,
+        "pitchY": 44.0
+      },
+      "description": "Scheda HMI Freenove FNK0104B con modulo ESP32-S3-WROOM-1 (N16R8 16MB Flash / 8MB OPI PSRAM), display IPS TFT 2.8\" ILI9341V (320x240), touch capacitivo FT6336G, codec audio ES8311, slot MicroSD, porta USB-C e 3 connettori JST 1.25mm 4-pin (UART, Expanded IO, I2C).",
+      "tags": [
+        "ESP32-S3",
+        "FNK0104B",
+        "ILI9341V",
+        "FT6336G",
+        "2.8-inch",
+        "Manifold"
+      ],
+      "preview": "./models/freenove-esp32-s3-2.8/preview.png",
+      "files": {
+        "scad": "./models/freenove-esp32-s3-2.8/model.scad",
+        "stl": "./models/freenove-esp32-s3-2.8/model.stl",
+        "threemf": "./models/freenove-esp32-s3-2.8/model.3mf",
+        "meta": "./models/freenove-esp32-s3-2.8/meta.json"
+      },
+      "updatedAt": "2026-11-23T18:00:00Z"
+    }
+  ]
+}

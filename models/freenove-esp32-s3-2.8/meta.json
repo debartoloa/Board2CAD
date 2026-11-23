@@ -1,0 +1,30 @@
+{
+  "slug": "freenove-esp32-s3-2.8",
+  "name": "Freenove ESP32-S3 Display 2.8\" IPS (FNK0104B)",
+  "category": "HMI / Display MCU (TFT / OLED)",
+  "partNumber": "FNK0104 / FNK0104B",
+  "mcu": "ESP32-S3-WROOM-1 (N16R8 — 16MB Quad Flash + 8MB Octal PSRAM)",
+  "dimensions": {
+    "length": 86.0,
+    "width": 50.0,
+    "height": 11.2
+  },
+  "mountingHoles": {
+    "diameter": 3.2,
+    "pitchX": 80.0,
+    "pitchY": 44.0
+  },
+  "description": "Modello 3D parametrico 100% manifold (watertight, eps = 0.05 mm) della scheda Freenove ESP32-S3 Display 2.8\" IPS (FNK0104B). Include display ILI9341V con touch capacitivo FT6336G, modulo ESP32-S3-WROOM-1 N16R8, porta USB-C incavata, slot MicroSD push-push, codec audio ES8311 + NS4150B, LED RGB WS2812 (GPIO 42), pulsanti RST/BOOT e connettori JST 1.25mm 4-pin (UART, Expanded IO, I2C).",
+  "hardwareNotes": "Display SPI2: MOSI=11, MISO=13, SCLK=12, CS=10, DC=46, BL=45. Touch I2C (0x38): SDA=16, SCL=15, INT=17, RST=18. Connettore UART 4-Pin (5V, GND, TX=GPIO43, RX=GPIO44 consigliato per trigger relè senza click al boot). Connettore Expanded IO 4-Pin (GPIO 2, 3, 14, 21). Audio ES8311 I2S (GPIO 4..8, Amp Enable=GPIO 1).",
+  "tags": [
+    "ESP32-S3",
+    "FNK0104B",
+    "ILI9341V",
+    "FT6336G",
+    "OpenSCAD",
+    "3MF",
+    "STL"
+  ],
+  "createdAt": "2026-11-23T18:00:00Z",
+  "updatedAt": "2026-11-23T18:00:00Z"
+}

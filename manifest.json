@@ -1,0 +1,73 @@
+{
+  "id": "/",
+  "name": "Board2CAD — PCB 3D Parametric Studio",
+  "short_name": "Board2CAD",
+  "description": "Generatore parametrico 3D client-side di schede elettroniche (ESP32, Arduino, display, moduli custom) con AI Vision, compilazione locale OpenSCAD WASM (.STL e .3MF multicolore), anteprima Three.js e sincronizzazione GitHub.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1120",
+  "theme_color": "#0b1120",
+  "dir": "ltr",
+  "lang": "it",
+  "categories": [
+    "utilities",
+    "developer tools",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Board2CAD Mobile 3D Viewer & Parametric Customizer"
+    },
+    {
+      "src": "/screenshot-desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Board2CAD Desktop Studio — Libreria Modelli, AI Wizard e Viewport 3D"
+    }
+  ]
+}
