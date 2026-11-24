@@ -1,10 +1,10 @@
 /**
  * Board2CAD — Vanilla Service Worker (sw.js)
- * Cache Version: board2cad-v1.5.0 (Aligned with APP_VERSION & CHANGELOG.md)
+ * Cache Version: board2cad-v1.5.1 (Aligned with APP_VERSION & CHANGELOG.md)
  * Strategy: Network-First with Offline Cache Fallback for App Shell & 3D Models Library
  */
 
-const CACHE_VERSION = 'v1.5.0';
+const CACHE_VERSION = 'v1.5.1';
 const CACHE_NAME = `board2cad-${CACHE_VERSION}`;
 
 const PRECACHE_ASSETS = [
@@ -16,10 +16,10 @@ const PRECACHE_ASSETS = [
   './icon-512.png',
   './screenshot-mobile.png',
   './screenshot-desktop.png',
-  './css/variables.css?v=1.5.0',
-  './css/main.css?v=1.5.0',
-  './css/viewer.css?v=1.5.0',
-  './js/app.js?v=1.5.0',
+  './css/variables.css?v=1.5.1',
+  './css/main.css?v=1.5.1',
+  './css/viewer.css?v=1.5.1',
+  './js/app.js?v=1.5.1',
   './js/services/aiService.js',
   './js/services/storageService.js',
   './js/services/githubService.js',
@@ -63,18 +63,24 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Non intercettare chiamate API dinamiche verso Gemini, OpenAI o GitHub REST API
+  // Non intercettare chiamate API dinamiche verso Gemini, OpenRouter, Groq, OpenAI o GitHub REST API
   if (
     url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('openrouter.ai') ||
+    url.hostname.includes('api.groq.com') ||
     url.hostname.includes('openai.com') ||
     url.hostname.includes('api.github.com')
   ) {
     return;
   }
 
-  // Network-First con fallback immediato sulla cache offline
+  // Network-First con bypass HTTP cache per asset locali e fallback immediato offline
+  const fetchReq = url.origin === self.location.origin
+    ? new Request(event.request, { cache: 'no-cache' })
+    : event.request;
+
   event.respondWith(
-    fetch(event.request)
+    fetch(fetchReq)
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const responseClone = networkResponse.clone();

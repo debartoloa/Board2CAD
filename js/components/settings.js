@@ -20,6 +20,7 @@ export class SettingsComponent {
     this.modelChipsEl = document.getElementById('setting-model-chips');
     this.keyInput = document.getElementById('setting-ai-key');
     this.keyLabel = document.getElementById('setting-ai-key-label');
+    this.keysSummaryEl = document.getElementById('setting-keys-summary');
 
     this.ghOwnerInput = document.getElementById('setting-gh-owner');
     this.ghRepoInput = document.getElementById('setting-gh-repo');
@@ -47,7 +48,7 @@ export class SettingsComponent {
     }
 
     if (this.providerInput) {
-      this.providerInput.addEventListener('change', () => {
+      const handleProviderChange = () => {
         // Salva bozza del provider precedente prima di cambiare scheda
         this.profiles[this.activeProvider] = {
           model: (this.modelInput?.value || '').trim() || AI_PROVIDERS_CONFIG[this.activeProvider].defaultModel,
@@ -59,6 +60,18 @@ export class SettingsComponent {
           : 'gemini';
         this.activeProvider = nextProvider;
         this.applyProviderFields(nextProvider);
+      };
+      this.providerInput.addEventListener('change', handleProviderChange);
+      this.providerInput.addEventListener('input', handleProviderChange);
+    }
+
+    if (this.keyInput) {
+      this.keyInput.addEventListener('input', () => {
+        if (!this.profiles[this.activeProvider]) {
+          this.profiles[this.activeProvider] = {};
+        }
+        this.profiles[this.activeProvider].apiKey = this.keyInput.value.trim();
+        this.renderKeysSummary();
       });
     }
 
@@ -125,10 +138,21 @@ export class SettingsComponent {
       this.keyInput.placeholder = cfg.keyPlaceholder;
     }
     if (this.keyLabel) {
-      this.keyLabel.textContent = `API Key (${cfg.label})`;
+      this.keyLabel.textContent = `API Key — ${cfg.label}`;
     }
 
     this.renderRecommendedModels(cfg);
+    this.renderKeysSummary();
+  }
+
+  renderKeysSummary() {
+    if (!this.keysSummaryEl) return;
+    const parts = Object.entries(AI_PROVIDERS_CONFIG).map(([id, cfg]) => {
+      const hasKey = Boolean((this.profiles[id]?.apiKey || '').trim());
+      const shortName = id === 'gemini' ? 'Gemini' : id === 'openrouter' ? 'OpenRouter' : 'Groq';
+      return `${hasKey ? '✓' : '○'} ${shortName}`;
+    });
+    this.keysSummaryEl.textContent = `Chiavi salvate per provider: ${parts.join('  ·  ')}`;
   }
 
   renderRecommendedModels(cfg) {

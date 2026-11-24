@@ -23,9 +23,9 @@
   <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
 
   <!-- Stylesheets (Vanilla CSS3) -->
-  <link rel="stylesheet" href="./css/variables.css?v=1.5.0">
-  <link rel="stylesheet" href="./css/main.css?v=1.5.0">
-  <link rel="stylesheet" href="./css/viewer.css?v=1.5.0">
+  <link rel="stylesheet" href="./css/variables.css?v=1.5.1">
+  <link rel="stylesheet" href="./css/main.css?v=1.5.1">
+  <link rel="stylesheet" href="./css/viewer.css?v=1.5.1">
 
   <!-- ES Module Import Map (Zero Build Step) -->
   <script type="importmap">
@@ -57,7 +57,7 @@
           <div class="brand-titles">
             <div class="brand-name-row">
               <span class="brand-name">Board2CAD</span>
-              <span class="version-badge" id="app-version-badge">v1.5.0</span>
+              <span class="version-badge" id="app-version-badge">v1.5.1</span>
             </div>
             <span class="brand-subtitle">PCB 3D Parametric Studio · OpenSCAD &amp; 3MF</span>
           </div>
@@ -583,8 +583,9 @@
             </div>
 
             <div class="form-group">
-              <label for="setting-ai-key" id="setting-ai-key-label">API Key (Google AI Studio)</label>
-              <input type="password" id="setting-ai-key" placeholder="AIzaSy..." autocomplete="off">
+              <label for="setting-ai-key" id="setting-ai-key-label">API Key</label>
+              <input type="password" id="setting-ai-key" placeholder="Inserisci la API Key del provider selezionato..." autocomplete="off">
+              <span class="settings-sublabel" id="setting-keys-summary"></span>
             </div>
           </div>
 
@@ -631,6 +632,6 @@
   </div>
 
   <!-- Main Application Entry Point (Vanilla ES6 Module) -->
-  <script type="module" src="./js/app.js?v=1.5.0"></script>
+  <script type="module" src="./js/app.js?v=1.5.1"></script>
 </body>
 </html>

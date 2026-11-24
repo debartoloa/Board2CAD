@@ -5,6 +5,15 @@ Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.0.0/)
 
 ---
 
+## [v1.5.1] - 2026-11-24
+
+### Fixed
+- **Etichetta Dinamica API Key & Cache-Busting Moduli JS (`index.html`, `js/components/settings.js`, `sw.js`):**
+  - Rimossa la dicitura statica `API Key (Google AI Studio)` in `index.html` sostituita da `API Key` neutra, aggiornata dinamicamente su `open()`, `change` e `input` del selettore Provider con il nome del provider attivo (`Google AI Studio`, `OpenRouter` o `Groq Cloud`) e un riepilogo visivo delle chiavi salvate (`✓ Gemini · ○ OpenRouter · ○ Groq`).
+  - Aggiunto `{ cache: 'no-cache' }` sulle richieste same-origin nel Service Worker `sw.js` per impedire al browser di servire versioni vecchie di `settings.js` o `aiService.js` dopo gli aggiornamenti.
+
+---
+
 ## [v1.5.0] - 2026-11-24
 
 ### Added
