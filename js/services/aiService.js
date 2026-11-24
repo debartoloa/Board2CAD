@@ -8,6 +8,31 @@
 
 import { storageService } from './storageService.js';
 
+/**
+ * Calcola le nuove dimensioni proporzionali garantendo che il lato più lungo non superi maxSide (default 1024 px)
+ * senza mai ingrandire immagini già più piccole.
+ */
+export function computeScaledDimensions(width, height, maxSide = 1024) {
+  const w = Number(width) || 0;
+  const h = Number(height) || 0;
+  if (w <= 0 || h <= 0) {
+    return { width: maxSide, height: maxSide };
+  }
+  if (w <= maxSide && h <= maxSide) {
+    return { width: Math.round(w), height: Math.round(h) };
+  }
+  if (w >= h) {
+    return {
+      width: maxSide,
+      height: Math.max(1, Math.round((h * maxSide) / w))
+    };
+  }
+  return {
+    width: Math.max(1, Math.round((w * maxSide) / h)),
+    height: maxSide
+  };
+}
+
 const SYSTEM_PROMPT_MANIFOLD = `Sei un Senior CAD Automation Engineer specializzato nella modellazione 3D OpenSCAD ad alta fedeltà di schede elettroniche reali (PCB 3D Mechanical & Visual Models) a partire da fotografie e disegni tecnici quotati.
 
 REGOLE FERREE E TASSATIVE:
@@ -434,8 +459,148 @@ ${scadCode}`;
   }
 
   /**
+   * Ridimensiona un File/Blob o DataURL su <canvas> offscreen mantenendo le proporzioni:
+   * lato lungo <= maxSide (default 1024 px), export image/jpeg con qualità 0.85.
+   * Riduce il peso del payload API di 5–10x preservando la leggibilità di pin, quote e serigrafie.
+   */
+  async optimizeImageToJpegDataUrl(fileOrDataUrl, maxSide = 1024, quality = 0.85) {
+    if (typeof document === 'undefined' || typeof Image === 'undefined') {
+      if (typeof fileOrDataUrl === 'string') {
+        const comma = fileOrDataUrl.indexOf(',');
+        const b64Len = comma >= 0 ? fileOrDataUrl.length - comma - 1 : fileOrDataUrl.length;
+        return {
+          dataUrl: fileOrDataUrl,
+          mimeType: 'image/jpeg',
+          width: 0,
+          height: 0,
+          sizeKb: Math.max(1, Math.round((b64Len * 0.75) / 1024)),
+          resized: false
+        };
+      }
+      throw new Error('Ambiente canvas non disponibile per il ridimensionamento immagine.');
+    }
+
+    const isBlobInput = typeof Blob !== 'undefined' && fileOrDataUrl instanceof Blob;
+    const objectUrl = isBlobInput ? URL.createObjectURL(fileOrDataUrl) : null;
+    const srcUrl = isBlobInput ? objectUrl : String(fileOrDataUrl || '');
+
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const imageEl = new Image();
+        imageEl.onload = () => resolve(imageEl);
+        imageEl.onerror = () => reject(new Error('Impossibile decodificare l\'immagine caricata.'));
+        imageEl.src = srcUrl;
+      });
+
+      const { width, height } = computeScaledDimensions(
+        img.naturalWidth || img.width,
+        img.naturalHeight || img.height,
+        maxSide
+      );
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Impossibile ottenere il contesto 2D del canvas.');
+      }
+
+      // Sfondo bianco solido per evitare sfondi neri su PNG trasparenti convertiti in JPEG
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const jpegDataUrl = canvas.toDataURL('image/jpeg', quality);
+      const comma = jpegDataUrl.indexOf(',');
+      const b64Len = comma >= 0 ? jpegDataUrl.length - comma - 1 : jpegDataUrl.length;
+      const sizeKb = Math.max(1, Math.round((b64Len * 0.75) / 1024));
+
+      return {
+        dataUrl: jpegDataUrl,
+        mimeType: 'image/jpeg',
+        width,
+        height,
+        sizeKb,
+        resized: true
+      };
+    } finally {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+  }
+
+  /**
+   * Verifica se il modello Gemini supporta thinkingConfig.thinkingBudget (serie 2.5 / 3.x / thinking)
+   */
+  supportsThinkingBudget(modelName = '') {
+    const m = String(modelName || '').trim();
+    return /gemini-(?:2\.5|[3-9](?:\.\d+)?)/i.test(m) || /thinking/i.test(m);
+  }
+
+  /**
+   * Compone in modo sincrono il prompt completo pronto per la copia negli appunti (Modalità Zero-API)
+   */
+  buildExternalChatPrompt({
+    name = '',
+    category = '',
+    presetLabel = '',
+    notes = '',
+    existingScad = '',
+    parameters = null,
+    imageCount = 0
+  }) {
+    const cleanName = (name || '').trim() || 'Da rilevare dalle foto allegate';
+    const cleanCategory = (category || '').trim() || 'Custom PCB';
+    const cleanPreset = (presetLabel || '').trim() || 'Rilevamento Automatico';
+    const cleanNotes =
+      (notes || '').trim() || 'Rileva tutte le quote, i fori di fissaggio e i componenti reali direttamente dalle foto allegate.';
+
+    const sections = [
+      SYSTEM_PROMPT_MANIFOLD,
+      '',
+      '=== DATI SCHEDA INSERITI DALL\'UTENTE ===',
+      `- Nome Scheda: ${cleanName}`,
+      `- Categoria: ${cleanCategory}`,
+      `- Modalità / Template: ${cleanPreset}`,
+      `- Note Dimensionali / Modifiche Richieste: ${cleanNotes}`
+    ];
+
+    if (parameters && typeof parameters === 'object') {
+      const entries = Object.entries(parameters).filter(([, v]) => v !== null && v !== undefined && !Number.isNaN(v));
+      if (entries.length > 0) {
+        sections.push(
+          '- Quote Confermate (mm): ' + entries.map(([k, v]) => `${k}=${v}`).join(', ')
+        );
+      }
+    }
+
+    if (existingScad && existingScad.trim()) {
+      sections.push(
+        '',
+        '=== CODICE OPENSCAD (.SCAD) DI PARTENZA DA MODIFICARE ===',
+        existingScad.trim()
+      );
+    }
+
+    sections.push(
+      '',
+      '=== ISTRUZIONI FINALI PER LA CHAT AI ===',
+      `1. [Promemoria Utente] Allega a questo messaggio le foto/disegni quotati della scheda${imageCount > 0 ? ` (${imageCount} foto caricate in Board2CAD)` : ''}.`,
+      '2. Analizza visivamente le immagini allegate rispettando tutte le quote reali, l\'orientamento verso l\'esterno dei connettori e la compenetrazione eps = 0.05 mm (zero componenti estranei non visibili in foto).',
+      '3. Rispondi ESCLUSIVAMENTE con codice OpenSCAD (.scad) completo, valido e pronto da copiare e incollare direttamente in Board2CAD (Studio 3D -> Editor .SCAD) per la compilazione in .STL e .3MF, senza testo introduttivo né commenti fuori dal codice.'
+    );
+
+    return sections.join('\n');
+  }
+
+  /**
    * Chiamata fetch diretta verso Google Gemini API o OpenAI Chat Completions
-   * Verifica e allega tutte le immagini caricate in Base64 nel payload multimodale!
+   * Verifica, ridimensiona (<=1024px JPEG 0.85) e allega tutte le immagini nel payload multimodale!
    */
   async invokeMultimodalLLM(settings, promptText, images = [], expectJson = false) {
     const provider = settings.aiProvider || 'gemini';
@@ -444,10 +609,20 @@ ${scadCode}`;
       throw new Error('API Key AI non configurata nelle Impostazioni.');
     }
 
-    // Filtra e valida le immagini Base64 caricate dall'utente
-    const validImages = (images || []).filter(
+    // Filtra e valida le immagini Base64 caricate dall'utente (ridimensionamento difensivo <= 1024px JPEG 0.85)
+    const rawValidImages = (images || []).filter(
       (img) => img && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/')
     );
+
+    const validImages = [];
+    for (const img of rawValidImages) {
+      if (img.resized === true || typeof document === 'undefined') {
+        validImages.push(img);
+      } else {
+        const optimized = await this.optimizeImageToJpegDataUrl(img.dataUrl, 1024, 0.85);
+        validImages.push({ ...img, ...optimized });
+      }
+    }
 
     console.info(
       `[AIService] Invio richiesta multimodale a ${provider} (${settings.aiModel}) con ${validImages.length} immagini allegate.`
@@ -511,17 +686,22 @@ ${scadCode}`;
 
     parts.push({ text: promptText });
 
+    const generationConfig = {
+      temperature: 0.15,
+      maxOutputTokens: 8192,
+      ...(expectJson ? { responseMimeType: 'application/json' } : {}),
+      ...(this.supportsThinkingBudget(model)
+        ? { thinkingConfig: { thinkingBudget: 2048 } }
+        : {})
+    };
+
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
-        generationConfig: {
-          temperature: 0.15,
-          maxOutputTokens: 8192,
-          ...(expectJson ? { responseMimeType: 'application/json' } : {})
-        }
+        generationConfig
       })
     });
 

@@ -8,9 +8,10 @@
 import { aiService } from '../services/aiService.js';
 
 export class WizardComponent {
-  constructor({ compileScadWithWorker, onModelGenerated, showToast }) {
+  constructor({ compileScadWithWorker, onModelGenerated, onPrepareDraftFromPrompt, showToast }) {
     this.compileScadWithWorker = compileScadWithWorker;
     this.onModelGenerated = onModelGenerated;
+    this.onPrepareDraftFromPrompt = onPrepareDraftFromPrompt;
     this.showToast = showToast;
 
     this.uploadedImages = [];
@@ -73,6 +74,15 @@ export class WizardComponent {
     if (analyzeBtn) {
       analyzeBtn.addEventListener('click', () => this.runStep2Analysis());
     }
+
+    // Pulsante "Copia Prompt per Chat AI (Zero-API)" in Step 1, Step 2 e Step 3
+    const copyPromptBtn = document.getElementById('wizard-copy-prompt-btn');
+    if (copyPromptBtn) {
+      copyPromptBtn.addEventListener('click', () => this.copyPromptForExternalAI());
+    }
+    document.querySelectorAll('.js-copy-ai-prompt-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.copyPromptForExternalAI());
+    });
 
     // Caricamento file .SCAD di partenza nel Wizard
     if (this.scadFileInputEl) {
@@ -150,31 +160,32 @@ export class WizardComponent {
   }
 
   /**
-   * Legge le immagini caricate in DataURL Base64
+   * Ridimensiona lato client tramite <canvas> (lato lungo <= 1024 px, JPEG 0.85)
+   * per abbattere il peso del payload API mantenendo perfettamente leggibili quote e pin.
    */
   async handleFiles(files) {
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
-      const dataUrl = await this.readFileAsDataUrl(file);
-      this.uploadedImages.push({
-        name: file.name,
-        mimeType: file.type,
-        sizeKb: Math.round(file.size / 1024),
-        dataUrl
-      });
+      try {
+        const optimized = await aiService.optimizeImageToJpegDataUrl(file, 1024, 0.85);
+        this.uploadedImages.push({
+          name: file.name,
+          mimeType: optimized.mimeType,
+          width: optimized.width,
+          height: optimized.height,
+          sizeKb: optimized.sizeKb,
+          dataUrl: optimized.dataUrl,
+          resized: true
+        });
+      } catch (err) {
+        if (this.showToast) {
+          this.showToast(`Errore ottimizzazione immagine "${file.name}": ${err.message}`, 'warning');
+        }
+      }
     }
     this.renderThumbnails();
     // Reset input value so re-selecting the same image works
     if (this.fileInputEl) this.fileInputEl.value = '';
-  }
-
-  readFileAsDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
   }
 
   renderThumbnails() {
@@ -182,7 +193,7 @@ export class WizardComponent {
     this.thumbsContainerEl.innerHTML = this.uploadedImages
       .map(
         (img, idx) => `
-        <div class="thumb-item" title="${img.name} (${img.sizeKb || '--'} KB)">
+        <div class="thumb-item" title="${img.name} (${img.width || '--'}×${img.height || '--'} px · ${img.sizeKb || '--'} KB JPEG)">
           <img src="${img.dataUrl}" alt="${img.name}">
           <button type="button" class="thumb-remove" data-idx="${idx}" title="Rimuovi immagine">✕</button>
         </div>
@@ -197,6 +208,99 @@ export class WizardComponent {
         this.renderThumbnails();
       });
     });
+  }
+
+  /**
+   * Compone in modo sincrono il prompt completo per chat AI esterne e lo copia negli appunti (Zero-API Fallback).
+   */
+  async copyPromptForExternalAI() {
+    const name = (this.nameInputEl?.value || '').trim();
+    const category = this.categorySelectEl?.value || 'Custom PCB';
+    const presetOpt = this.presetSelectEl?.selectedOptions?.[0];
+    const presetLabel = presetOpt ? presetOpt.textContent.trim() : 'Rilevamento Automatico';
+    const notes = (this.notesInputEl?.value || '').trim();
+    const existingScad = (this.baseScadInputEl?.value || '').trim();
+
+    const step2Inputs = this.clarificationFormEl ? this.clarificationFormEl.querySelectorAll('input') : [];
+    const parameters = step2Inputs.length > 0 ? this.collectClarifiedParameters() : null;
+
+    const promptText = aiService.buildExternalChatPrompt({
+      name,
+      category,
+      presetLabel,
+      notes,
+      existingScad,
+      parameters,
+      imageCount: this.uploadedImages.length
+    });
+
+    // Invoca navigator.clipboard.writeText sincronamente prima di qualsiasi await per preservare la user gesture su iOS Safari
+    let copied = false;
+    const clipboardPromise =
+      navigator.clipboard && window.isSecureContext
+        ? navigator.clipboard.writeText(promptText)
+        : null;
+
+    if (clipboardPromise) {
+      try {
+        await clipboardPromise;
+        copied = true;
+      } catch {
+        copied = this.fallbackExecCommandCopy(promptText);
+      }
+    } else {
+      copied = this.fallbackExecCommandCopy(promptText);
+    }
+
+    if (this.onPrepareDraftFromPrompt && (name || notes || existingScad || this.uploadedImages.length > 0)) {
+      this.onPrepareDraftFromPrompt({
+        name: name || 'Nuova Scheda da Chat AI',
+        category,
+        notes,
+        previewDataUrl: this.uploadedImages[0]?.dataUrl || './icon-512.png'
+      });
+    }
+
+    if (this.showToast) {
+      if (copied) {
+        this.showToast(
+          'Prompt copiato! Incollalo nella tua chat AI insieme alle foto, poi riporta qui il codice .SCAD nello Studio 3D',
+          'success'
+        );
+      } else {
+        this.showToast(
+          'Copia automatica bloccata dal browser: consenti l\'accesso agli appunti o usa HTTPS.',
+          'warning'
+        );
+      }
+    }
+  }
+
+  /**
+   * Fallback di copia negli appunti per browser mobile/HTTP locale (iOS Safari / Android WebView)
+   */
+  fallbackExecCommandCopy(text) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '0';
+      ta.style.left = '0';
+      ta.style.width = '1px';
+      ta.style.height = '1px';
+      ta.style.opacity = '0';
+      ta.style.fontSize = '16px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return Boolean(ok);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -343,9 +447,10 @@ export class WizardComponent {
       let scadCode = '';
       if (directCompileExistingScad && existingScad) {
         this.appendLog('Modalità Compilazione Diretta: utilizzo il codice .SCAD fornito dall\'utente...', 'info');
+        const cleanedSeed = aiService.extractCleanScadCode(existingScad);
         scadCode = notes
-          ? aiService.applyModificationsToExistingScad(existingScad, parameters, notes, name)
-          : existingScad;
+          ? aiService.applyModificationsToExistingScad(cleanedSeed, parameters, notes, name)
+          : cleanedSeed;
       } else {
         this.appendLog(
           `Quote confermate: PCB ${parameters.pcb_length} × ${parameters.pcb_width} × ${parameters.pcb_thickness || 1.6} mm.`,

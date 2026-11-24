@@ -5,6 +5,21 @@ Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.0.0/)
 
 ---
 
+## [v1.4.0] - 2026-11-24
+
+### Added
+- **Ridimensionamento Automatico Immagini via `<canvas>` (`js/services/aiService.js`, `js/components/wizard.js`):**
+  - Tutte le immagini caricate nel Wizard (orizzontali, verticali o quadrate) vengono ridimensionate automaticamente lato client su `<canvas>` offscreen in modo che il lato più lungo non superi **1024 px** (mantenendo inalterate le proporzioni, senza upscaling per foto già piccole) ed esportate in **`image/jpeg` qualità `0.85`** con sfondo bianco per preservare la leggibilità dei disegni quotati PNG trasparenti.
+  - Riduzione del peso del payload multimodale di 5–10× per abbattere errori `HTTP 503` e timeout delle API Vision.
+- **Ottimizzazione `thinkingBudget` per Modelli Gemini (`js/services/aiService.js`):**
+  - Aggiunto `generationConfig.thinkingConfig.thinkingBudget = 2048` nelle chiamate `generateContent` verso modelli Gemini serie `2.5` / `3.x` / `thinking`, evitando tempi di ragionamento eccessivi prima di generare il codice `.scad`.
+- **Modalità "Copia Prompt per Chat AI" (Zero-API Offline Fallback) (`index.html`, `js/components/wizard.js`, `js/app.js`):**
+  - Aggiunto il pulsante **"Copia Prompt per Chat AI"** negli step del Wizard (anche senza API Key configurata).
+  - Copia negli appunti (con supporto cross-platform `navigator.clipboard.writeText` + fallback `<textarea>` per mobile iOS Safari / Android Chrome) un prompt strutturato completo con il System Prompt manifold (`eps = 0.05 mm`, orientamento connettori, Customizer, zero componenti estranei), i dati inseriti dall'utente, l'eventuale codice `.scad` di partenza e il promemoria di allegare le foto nella chat esterna.
+  - Prepara automaticamente una bozza locale nello Studio 3D (`Editor .SCAD`) con stripping automatico dei blocchi markdown ```` ```openscad ... ``` ```` in fase di compilazione e nuovo pulsante **`Salva come Nuova`**.
+
+---
+
 ## [v1.3.0] - 2026-11-23
 
 ### Fixed
