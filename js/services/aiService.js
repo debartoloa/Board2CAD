@@ -8,6 +8,93 @@
 
 import { storageService } from './storageService.js';
 
+export const AI_PROVIDERS_CONFIG = {
+  gemini: {
+    label: 'Google AI Studio (Gemini)',
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
+    defaultModel: 'gemini-3.8-flash',
+    recommendedModels: [
+      'gemini-3.8-flash',
+      'gemini-3.6-flash',
+      'gemini-3.1-pro-preview',
+      'gemma-4-31b-it'
+    ],
+    keyPlaceholder: 'AIzaSy...'
+  },
+  openrouter: {
+    label: 'OpenRouter (Free Vision)',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    defaultModel: 'qwen/qwen2.5-vl-72b-instruct:free',
+    recommendedModels: [
+      'qwen/qwen2.5-vl-72b-instruct:free',
+      'google/gemma-3-27b-it:free'
+    ],
+    keyPlaceholder: 'sk-or-v1-...'
+  },
+  groq: {
+    label: 'Groq Cloud (Ultraveloce)',
+    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    defaultModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    recommendedModels: [
+      'meta-llama/llama-4-scout-17b-16e-instruct'
+    ],
+    keyPlaceholder: 'gsk_...'
+  }
+};
+
+/**
+ * Estrae il testo di risposta effettivo da Google Gemini / Gemma,
+ * filtrando ed escludendo rigorosamente tutti i blocchi con part.thought === true (Gemini 3.x thinking).
+ */
+export function extractGeminiResponseText(data) {
+  const candidate = data?.candidates?.[0];
+  if (!candidate || !candidate.content || !Array.isArray(candidate.content.parts)) {
+    const reason = data?.promptFeedback?.blockReason || candidate?.finishReason || 'nessun candidato restituito';
+    throw new Error(`Risposta Gemini vuota o bloccata (${reason}).`);
+  }
+
+  const outputParts = candidate.content.parts
+    .filter((part) => part && part.thought !== true && typeof part.text === 'string')
+    .map((part) => part.text);
+
+  const combined = outputParts.join('\n').trim();
+  if (!combined) {
+    const reason = candidate.finishReason || 'solo blocchi di ragionamento senza codice finale';
+    throw new Error(`Gemini non ha restituito testo di risposta valido (${reason}).`);
+  }
+  return combined;
+}
+
+/**
+ * Estrae il testo di risposta da provider compatibili OpenAI Chat Completions (OpenRouter, Groq, OpenAI),
+ * rimuovendo eventuali blocchi di ragionamento <think>...</think> o part.thought === true.
+ */
+export function extractOpenAICompatibleText(data, providerLabel = 'Provider AI') {
+  if (data?.error) {
+    const msg = data.error.message || JSON.stringify(data.error);
+    throw new Error(`Errore ${providerLabel}: ${msg}`);
+  }
+
+  const content = data?.choices?.[0]?.message?.content;
+  let text = '';
+
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content
+      .filter((part) => part && part.thought !== true && part.type !== 'thinking' && typeof part.text === 'string')
+      .map((part) => part.text)
+      .join('\n');
+  }
+
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  if (!text) {
+    const reason = data?.choices?.[0]?.finish_reason || 'contenuto vuoto';
+    throw new Error(`Risposta ${providerLabel} vuota (${reason}).`);
+  }
+  return text;
+}
+
 /**
  * Calcola le nuove dimensioni proporzionali garantendo che il lato più lungo non superi maxSide (default 1024 px)
  * senza mai ingrandire immagini già più piccole.
@@ -100,7 +187,7 @@ export class AIService {
     // Caso B: Generazione da Foto / Note -> Richiede API Key AI Vision valida (Zero mock / Zero template ESP32 finti!)
     if (!settings.aiApiKey || settings.aiProvider === 'offline') {
       throw new Error(
-        'API Key AI Vision non configurata. Apri le Impostazioni (icona ingranaggio in alto a destra), seleziona Google Gemini o OpenAI e inserisci la tua API Key per analizzare le foto della scheda.'
+        'API Key AI Vision non configurata (HTTP 401). Apri Config (icona ingranaggio), seleziona Google Gemini, OpenRouter o Groq e inserisci la tua API Key, oppure usa "Copia Prompt per Chat AI".'
       );
     }
 
@@ -304,7 +391,7 @@ Puoi aggiungere nell'array "questions" altri 1-3 parametri specifici della sched
 
     if (!settings.aiApiKey || settings.aiProvider === 'offline') {
       throw new Error(
-        'API Key AI non configurata. Configura una API Key valida (Gemini o OpenAI) nelle Impostazioni per generare lo script OpenSCAD dalle foto.'
+        'API Key AI non configurata (HTTP 401). Configura una API Key valida (Google Gemini, OpenRouter o Groq) in Config oppure usa "Copia Prompt per Chat AI".'
       );
     }
 
@@ -451,11 +538,44 @@ ${scadCode}`;
   }
 
   /**
-   * Pulisce eventuali blocchi markdown ```scad ... ``` dalla risposta LLM
+   * Pulisce eventuali blocchi <think>...</think> e markdown ```openscad ... ``` dalla risposta LLM,
+   * estraendo il blocco codice OpenSCAD principale.
    */
   extractCleanScadCode(rawText = '') {
-    const fenced = rawText.match(/```(?:openscad|scad)?\s*([\s\S]*?)```/i);
-    return (fenced ? fenced[1] : rawText).trim();
+    let text = String(rawText || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    const fenceRegex = /```(?:openscad|scad|c|cpp)?\s*([\s\S]*?)```/gi;
+    const matches = [];
+    let m;
+    while ((m = fenceRegex.exec(text)) !== null) {
+      if (m[1] && m[1].trim()) {
+        matches.push(m[1].trim());
+      }
+    }
+    if (matches.length > 0) {
+      matches.sort((a, b) => b.length - a.length);
+      return matches[0];
+    }
+    return text
+      .replace(/^```(?:openscad|scad|c|cpp)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+  }
+
+  /**
+   * Formatta gli errori HTTP reali dell'API in un messaggio chiaro e leggibile nei banner UI
+   */
+  formatApiHttpError(providerLabel, status, rawBody = '') {
+    let detail = String(rawBody || '').trim();
+    try {
+      const parsed = JSON.parse(detail);
+      detail = parsed?.error?.message || parsed?.message || detail;
+    } catch {
+      // Testo non JSON
+    }
+    if (detail.length > 320) {
+      detail = `${detail.slice(0, 320)}...`;
+    }
+    return `Errore API ${providerLabel} (HTTP ${status}): ${detail || 'Risposta non valida dal server'}`;
   }
 
   /**
@@ -599,14 +719,16 @@ ${scadCode}`;
   }
 
   /**
-   * Chiamata fetch diretta verso Google Gemini API o OpenAI Chat Completions
+   * Chiamata fetch diretta verso Google Gemini / Gemma, OpenRouter (OpenAI Vision) o Groq Cloud (OpenAI Vision).
    * Verifica, ridimensiona (<=1024px JPEG 0.85) e allega tutte le immagini nel payload multimodale!
    */
   async invokeMultimodalLLM(settings, promptText, images = [], expectJson = false) {
     const provider = settings.aiProvider || 'gemini';
     const apiKey = (settings.aiApiKey || '').trim();
-    if (!apiKey) {
-      throw new Error('API Key AI non configurata nelle Impostazioni.');
+    if (!apiKey || provider === 'offline') {
+      throw new Error(
+        'API Key AI non configurata (HTTP 401): apri Config / Impostazioni e inserisci una API Key per Google Gemini, OpenRouter o Groq.'
+      );
     }
 
     // Filtra e valida le immagini Base64 caricate dall'utente (ridimensionamento difensivo <= 1024px JPEG 0.85)
@@ -624,48 +746,75 @@ ${scadCode}`;
       }
     }
 
+    const activeCfg = AI_PROVIDERS_CONFIG[provider] || AI_PROVIDERS_CONFIG.gemini;
+    const resolvedModel = (settings.aiModel || activeCfg.defaultModel || '').trim();
+
     console.info(
-      `[AIService] Invio richiesta multimodale a ${provider} (${settings.aiModel}) con ${validImages.length} immagini allegate.`
+      `[AIService] Invio richiesta multimodale a ${provider} (${resolvedModel}) con ${validImages.length} immagini allegate.`
     );
 
-    if (provider === 'openai') {
-      const model = (settings.aiModel || 'gpt-4o').trim();
+    // Branch A: OpenAI-Compatible Vision Providers (OpenRouter, Groq Cloud, fallback OpenAI)
+    if (provider === 'openrouter' || provider === 'groq' || provider === 'openai') {
+      const endpointMap = {
+        openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+        groq: 'https://api.groq.com/openai/v1/chat/completions',
+        openai: 'https://api.openai.com/v1/chat/completions'
+      };
+      const labelMap = {
+        openrouter: 'OpenRouter',
+        groq: 'Groq Cloud',
+        openai: 'OpenAI'
+      };
+
+      const endpoint = endpointMap[provider];
+      const providerLabel = labelMap[provider];
+      const model = resolvedModel || activeCfg.defaultModel;
+
       const contentParts = [{ type: 'text', text: promptText }];
       for (const img of validImages) {
         contentParts.push({
           type: 'image_url',
-          image_url: {
-            url: img.dataUrl,
-            detail: 'high'
-          }
+          image_url: { url: img.dataUrl }
         });
       }
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: contentParts }],
-          temperature: 0.15,
-          max_tokens: 8192,
-          ...(expectJson ? { response_format: { type: 'json_object' } } : {})
-        })
-      });
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        ...(provider === 'openrouter'
+          ? {
+              'HTTP-Referer': typeof location !== 'undefined' ? location.origin : 'https://debartoloa.github.io/Board2CAD/',
+              'X-Title': 'Board2CAD'
+            }
+          : {})
+      };
+
+      let res;
+      try {
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: contentParts }],
+            temperature: 0.15,
+            max_tokens: 4096
+          })
+        });
+      } catch (netErr) {
+        throw new Error(`Errore di rete verso ${providerLabel}: ${netErr?.message || String(netErr)}`);
+      }
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`OpenAI API Error (HTTP ${res.status}): ${errText}`);
+        throw new Error(this.formatApiHttpError(providerLabel, res.status, errText));
       }
       const data = await res.json();
-      return data.choices?.[0]?.message?.content || '';
+      return extractOpenAICompatibleText(data, providerLabel);
     }
 
-    // Default: Google Gemini API (Multimodal Vision + Code Generation)
-    const model = (settings.aiModel || 'gemini-2.5-flash').trim();
+    // Branch B: Google AI Studio (Gemini 3.x / 2.5 / Gemma 4)
+    const model = resolvedModel || AI_PROVIDERS_CONFIG.gemini.defaultModel;
     const parts = [];
 
     // Inserisce prima tutte le immagini inline_data Base64 e poi il prompt testuale (best practice Gemini Vision)
@@ -686,35 +835,37 @@ ${scadCode}`;
 
     parts.push({ text: promptText });
 
+    const isGemma = /^gemma-/i.test(model);
     const generationConfig = {
       temperature: 0.15,
       maxOutputTokens: 8192,
-      ...(expectJson ? { responseMimeType: 'application/json' } : {}),
-      ...(this.supportsThinkingBudget(model)
+      ...(expectJson && !isGemma ? { responseMimeType: 'application/json' } : {}),
+      ...(!isGemma && this.supportsThinkingBudget(model)
         ? { thinkingConfig: { thinkingBudget: 2048 } }
         : {})
     };
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig
-      })
-    });
+    let res;
+    try {
+      res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts }],
+          generationConfig
+        })
+      });
+    } catch (netErr) {
+      throw new Error(`Errore di rete verso Google Gemini: ${netErr?.message || String(netErr)}`);
+    }
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`Gemini API Error (HTTP ${res.status}): ${errText}`);
+      throw new Error(this.formatApiHttpError('Google Gemini', res.status, errText));
     }
     const data = await res.json();
-    const candidate = data.candidates?.[0];
-    if (!candidate || !candidate.content || !Array.isArray(candidate.content.parts)) {
-      throw new Error('Risposta Gemini vuota o bloccata dai filtri.');
-    }
-    return candidate.content.parts.map((p) => p.text || '').join('\n');
+    return extractGeminiResponseText(data);
   }
 }
 

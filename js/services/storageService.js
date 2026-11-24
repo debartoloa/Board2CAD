@@ -10,8 +10,13 @@ const SETTINGS_KEY = 'board2cad_settings_v1';
 
 const DEFAULT_SETTINGS = {
   aiProvider: 'gemini',
-  aiModel: 'gemini-2.5-flash',
+  aiModel: 'gemini-3.8-flash',
   aiApiKey: '',
+  providerProfiles: {
+    gemini: { model: 'gemini-3.8-flash', apiKey: '' },
+    openrouter: { model: 'qwen/qwen2.5-vl-72b-instruct:free', apiKey: '' },
+    groq: { model: 'meta-llama/llama-4-scout-17b-16e-instruct', apiKey: '' }
+  },
   ghOwner: 'debartoloa',
   ghRepo: 'Board2CAD',
   ghBranch: 'main',
@@ -24,15 +29,35 @@ export class StorageService {
   }
 
   /**
-   * Legge le impostazioni salvate in localStorage
+   * Legge le impostazioni salvate in localStorage effettuando merge profondo dei profili provider
    */
   getSettings() {
+    const cloneDefaults = () => ({
+      ...DEFAULT_SETTINGS,
+      providerProfiles: {
+        gemini: { ...DEFAULT_SETTINGS.providerProfiles.gemini },
+        openrouter: { ...DEFAULT_SETTINGS.providerProfiles.openrouter },
+        groq: { ...DEFAULT_SETTINGS.providerProfiles.groq }
+      }
+    });
+
     try {
       const raw = localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return { ...DEFAULT_SETTINGS };
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      if (!raw) return cloneDefaults();
+      const parsed = JSON.parse(raw);
+      const base = cloneDefaults();
+      const mergedProfiles = {
+        gemini: { ...base.providerProfiles.gemini, ...(parsed.providerProfiles?.gemini || {}) },
+        openrouter: { ...base.providerProfiles.openrouter, ...(parsed.providerProfiles?.openrouter || {}) },
+        groq: { ...base.providerProfiles.groq, ...(parsed.providerProfiles?.groq || {}) }
+      };
+      return {
+        ...base,
+        ...parsed,
+        providerProfiles: mergedProfiles
+      };
     } catch {
-      return { ...DEFAULT_SETTINGS };
+      return cloneDefaults();
     }
   }
 

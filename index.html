@@ -23,9 +23,9 @@
   <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
 
   <!-- Stylesheets (Vanilla CSS3) -->
-  <link rel="stylesheet" href="./css/variables.css?v=1.4.0">
-  <link rel="stylesheet" href="./css/main.css?v=1.4.0">
-  <link rel="stylesheet" href="./css/viewer.css?v=1.4.0">
+  <link rel="stylesheet" href="./css/variables.css?v=1.5.0">
+  <link rel="stylesheet" href="./css/main.css?v=1.5.0">
+  <link rel="stylesheet" href="./css/viewer.css?v=1.5.0">
 
   <!-- ES Module Import Map (Zero Build Step) -->
   <script type="importmap">
@@ -57,7 +57,7 @@
           <div class="brand-titles">
             <div class="brand-name-row">
               <span class="brand-name">Board2CAD</span>
-              <span class="version-badge" id="app-version-badge">v1.4.0</span>
+              <span class="version-badge" id="app-version-badge">v1.5.0</span>
             </div>
             <span class="brand-subtitle">PCB 3D Parametric Studio · OpenSCAD &amp; 3MF</span>
           </div>
@@ -258,6 +258,8 @@
                 <textarea id="board-notes-input" rows="5" placeholder="Se parti da zero: indica dimensioni PCB (es. 86x50 mm), interasse fori, connettori...&#10;Se hai incollato un codice .SCAD: scrivi quali modifiche vuoi implementare (es. 'Cambia PCB a 90x55 mm, sposta la USB-C, aggiungi serigrafia v2.0, correggi compenetrazione manifold 0.05mm')..."></textarea>
               </div>
 
+              <div class="wizard-status-banner" id="wizard-status-step1" role="status" aria-live="assertive" hidden></div>
+
               <div class="wizard-actions" style="flex-direction: column;">
                 <button type="button" class="btn btn-primary btn-block" id="wizard-analyze-btn">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -292,6 +294,8 @@
               <!-- Populated dynamically by wizard.js -->
             </form>
 
+            <div class="wizard-status-banner" id="wizard-status-step2" role="status" aria-live="assertive" hidden></div>
+
             <div class="wizard-actions split">
               <button type="button" class="btn btn-secondary" id="wizard-back-step1-btn">
                 ← Torna a Foto &amp; Note
@@ -313,6 +317,8 @@
           <div class="card">
             <h3 class="card-title">Pipeline di Generazione CAD &amp; Verifica Manifold</h3>
             <p class="card-desc">Esecuzione del generatore OpenSCAD con compenetrazione <code>0.05 mm</code>, validazione mesh watertight e compilazione binaria Web Worker.</p>
+
+            <div class="wizard-status-banner" id="wizard-status-step3" role="status" aria-live="assertive" hidden></div>
 
             <div class="pipeline-log" id="wizard-pipeline-log" role="log" aria-live="polite">
               <!-- Log items appended here -->
@@ -553,26 +559,32 @@
         <form id="settings-form" class="modal-body">
           <div class="settings-section">
             <h4>1. Motore AI Multimodale (Vision &amp; OpenSCAD Generator)</h4>
-            <p class="settings-hint">Le chiavi API vengono salvate solo nel browser (<code>localStorage</code>). Se non inserisci una chiave, Board2CAD usa automaticamente il <strong>Motore Parametrico Intelligente Offline</strong> integrato.</p>
+            <p class="settings-hint">Le chiavi API vengono salvate solo nel browser (<code>localStorage</code>). Se non hai una API Key, usa il pulsante <strong>"Copia Prompt per Chat AI"</strong> nello Wizard.</p>
 
             <div class="form-row-2col">
               <div class="form-group">
                 <label for="setting-ai-provider">Provider AI</label>
                 <select id="setting-ai-provider">
-                  <option value="gemini">Google Gemini API (Vision + CAD)</option>
-                  <option value="openai">OpenAI API (GPT-4o Vision)</option>
-                  <option value="offline">Motore Parametrico Locale (Offline)</option>
+                  <option value="gemini">Google AI Studio (Gemini)</option>
+                  <option value="openrouter">OpenRouter (Free Vision Models)</option>
+                  <option value="groq">Groq Cloud (Ultraveloce)</option>
                 </select>
               </div>
               <div class="form-group">
                 <label for="setting-ai-model">Modello AI</label>
-                <input type="text" id="setting-ai-model" placeholder="gemini-2.5-flash / gpt-4o">
+                <input type="text" id="setting-ai-model" list="setting-ai-model-datalist" placeholder="gemini-3.8-flash">
+                <datalist id="setting-ai-model-datalist"></datalist>
               </div>
             </div>
 
             <div class="form-group">
-              <label for="setting-ai-key">API Key (Gemini o OpenAI)</label>
-              <input type="password" id="setting-ai-key" placeholder="AIzaSy... oppure sk-..." autocomplete="off">
+              <span class="settings-sublabel">Modelli consigliati (clicca per selezionare):</span>
+              <div class="model-preset-chips" id="setting-model-chips" aria-label="Modelli consigliati"></div>
+            </div>
+
+            <div class="form-group">
+              <label for="setting-ai-key" id="setting-ai-key-label">API Key (Google AI Studio)</label>
+              <input type="password" id="setting-ai-key" placeholder="AIzaSy..." autocomplete="off">
             </div>
           </div>
 
@@ -619,6 +631,6 @@
   </div>
 
   <!-- Main Application Entry Point (Vanilla ES6 Module) -->
-  <script type="module" src="./js/app.js?v=1.4.0"></script>
+  <script type="module" src="./js/app.js?v=1.5.0"></script>
 </body>
 </html>

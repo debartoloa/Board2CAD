@@ -5,6 +5,26 @@ Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.0.0/)
 
 ---
 
+## [v1.5.0] - 2026-11-24
+
+### Added
+- **Feedback Visivo Obbligatorio & Gestione Errori `try/catch/finally` nello Wizard (`index.html`, `css/main.css`, `js/components/wizard.js`):**
+  - Aggiunti banner di stato persistenti (`.wizard-status-banner`) in tutti gli step dello Wizard con stati espliciti:
+    - **In corso:** spinner animato CSS, pulsanti principali disabilitati durante la richiesta e messaggi live (*"⏳ Invio immagini all'AI in corso..."*, *"⚙️ Compilazione STL e 3MF nel browser..."*).
+    - **Errore:** banner rosso persistente con codice HTTP reale (`503` / `401` / `429`) e dettaglio API, più pulsanti rapidi inline per aprire **Config** o copiare il prompt (**"Copia Prompt per Chat AI"**).
+    - **Successo:** banner verde e passaggio automatico allo **Studio 3D** con il modello compilato e renderizzato.
+- **Supporto Multi-Provider Gratuiti (`Google AI Studio`, `OpenRouter`, `Groq Cloud`) (`js/components/settings.js`, `js/services/aiService.js`, `js/services/storageService.js`):**
+  - Nuova modale **Config** con salvataggio profili per ciascun provider in `localStorage` e chip rapidi per i modelli consigliati:
+    - **Google AI Studio (Gemini):** `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.1-pro-preview`, `gemma-4-31b-it` (gestione automatica senza `thinkingConfig`/`responseMimeType` su modelli Gemma).
+    - **OpenRouter (Free Vision):** `qwen/qwen2.5-vl-72b-instruct:free`, `google/gemma-3-27b-it:free` su endpoint `https://openrouter.ai/api/v1/chat/completions`.
+    - **Groq Cloud (Ultraveloce):** `meta-llama/llama-4-scout-17b-16e-instruct` su endpoint `https://api.groq.com/openai/v1/chat/completions`.
+
+### Fixed
+- **Fix Parsing Risposta Gemini 3.x (`thought: true`) (`js/services/aiService.js`):**
+  - Aggiunto `extractGeminiResponseText` che filtra ed esclude tutti i blocchi con `part.thought === true` in `candidates[0].content.parts`, estraendo esclusivamente il blocco finale effettivo e ripulendo eventuali fence markdown ```` ```openscad ... ``` ```` (e blocchi `<think>...</think>` sui provider OpenAI-compatibili).
+
+---
+
 ## [v1.4.0] - 2026-11-24
 
 ### Added

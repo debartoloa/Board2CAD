@@ -3,26 +3,43 @@
  * Step 1: Upload board photos + name + notes (or existing .SCAD code)
  * Step 2: Authentic AI Vision Inspection & Dynamic Clarification Form (Clarification First)
  * Step 3: OpenSCAD 100% Manifold Code Generation + Compiler Validation + Auto-Fix Loop + STL & 3MF
+ *
+ * Includes explicit UI status banners (Loading / Persistent Error / Success) and full try/catch/finally guarantees.
  */
 
-import { aiService } from '../services/aiService.js';
+import { aiService, AI_PROVIDERS_CONFIG } from '../services/aiService.js';
+import { storageService } from '../services/storageService.js';
 
 export class WizardComponent {
-  constructor({ compileScadWithWorker, onModelGenerated, onPrepareDraftFromPrompt, showToast }) {
+  constructor({
+    compileScadWithWorker,
+    onModelGenerated,
+    onPrepareDraftFromPrompt,
+    onOpenSettings,
+    showToast
+  }) {
     this.compileScadWithWorker = compileScadWithWorker;
     this.onModelGenerated = onModelGenerated;
     this.onPrepareDraftFromPrompt = onPrepareDraftFromPrompt;
+    this.onOpenSettings = onOpenSettings;
     this.showToast = showToast;
 
     this.uploadedImages = [];
     this.currentAnalysis = null;
     this.generatedModelData = null;
+    this.activeStep = 1;
 
     // Elementi DOM Step 1..3
     this.stepperItems = document.querySelectorAll('.wizard-stepper .step-item');
     this.step1Panel = document.getElementById('wizard-step-1');
     this.step2Panel = document.getElementById('wizard-step-2');
     this.step3Panel = document.getElementById('wizard-step-3');
+
+    this.statusBanners = {
+      1: document.getElementById('wizard-status-step1'),
+      2: document.getElementById('wizard-status-step2'),
+      3: document.getElementById('wizard-status-step3')
+    };
 
     this.dropzoneEl = document.getElementById('wizard-dropzone');
     this.fileInputEl = document.getElementById('wizard-file-input');
@@ -39,6 +56,16 @@ export class WizardComponent {
     this.analysisSummaryEl = document.getElementById('ai-analysis-summary');
     this.pipelineLogEl = document.getElementById('wizard-pipeline-log');
     this.step3ActionsEl = document.getElementById('wizard-step3-actions');
+
+    this.analyzeBtn = document.getElementById('wizard-analyze-btn');
+    this.generateScadBtn = document.getElementById('wizard-generate-scad-btn');
+    this.directCompileBtn = document.getElementById('wizard-direct-compile-scad-btn');
+
+    this.defaultBtnLabels = {
+      analyze: this.analyzeBtn?.querySelector('span')?.textContent || 'Analizza & Verifica Quote / Modifiche (Step 2)',
+      generate: this.generateScadBtn?.querySelector('span')?.textContent || 'Genera OpenSCAD + Compila STL & 3MF (Step 3)',
+      direct: this.directCompileBtn?.querySelector('span')?.textContent || 'Compila Direttamente il mio .SCAD così com\'è (Vai a Step 3)'
+    };
 
     this.bindEvents();
   }
@@ -70,9 +97,8 @@ export class WizardComponent {
       });
     }
 
-    const analyzeBtn = document.getElementById('wizard-analyze-btn');
-    if (analyzeBtn) {
-      analyzeBtn.addEventListener('click', () => this.runStep2Analysis());
+    if (this.analyzeBtn) {
+      this.analyzeBtn.addEventListener('click', () => this.runStep2Analysis());
     }
 
     // Pulsante "Copia Prompt per Chat AI (Zero-API)" in Step 1, Step 2 e Step 3
@@ -114,11 +140,15 @@ export class WizardComponent {
     }
 
     // Pulsante "Compila Direttamente il mio .SCAD così com'è"
-    const directCompileBtn = document.getElementById('wizard-direct-compile-scad-btn');
-    if (directCompileBtn) {
-      directCompileBtn.addEventListener('click', () => {
+    if (this.directCompileBtn) {
+      this.directCompileBtn.addEventListener('click', () => {
         const existingScad = (this.baseScadInputEl?.value || '').trim();
         if (!existingScad) {
+          this.setWizardStatus(
+            'error',
+            'Incolla o carica prima un codice .SCAD nella casella "Codice .SCAD di partenza".',
+            { hidePromptFallback: true }
+          );
           if (this.showToast) {
             this.showToast('Incolla o carica prima un codice .SCAD nella casella "Codice .SCAD di partenza"!', 'warning');
           }
@@ -131,17 +161,22 @@ export class WizardComponent {
 
     const backStep1Btn = document.getElementById('wizard-back-step1-btn');
     if (backStep1Btn) {
-      backStep1Btn.addEventListener('click', () => this.goToStep(1));
+      backStep1Btn.addEventListener('click', () => {
+        this.setWizardStatus('idle');
+        this.goToStep(1);
+      });
     }
 
-    const generateScadBtn = document.getElementById('wizard-generate-scad-btn');
-    if (generateScadBtn) {
-      generateScadBtn.addEventListener('click', () => this.runStep3Generation(false));
+    if (this.generateScadBtn) {
+      this.generateScadBtn.addEventListener('click', () => this.runStep3Generation(false));
     }
 
     const backStep2Btn = document.getElementById('wizard-back-step2-btn');
     if (backStep2Btn) {
-      backStep2Btn.addEventListener('click', () => this.goToStep(2));
+      backStep2Btn.addEventListener('click', () => {
+        this.setWizardStatus('idle');
+        this.goToStep(2);
+      });
     }
 
     const openStudioBtn = document.getElementById('wizard-open-studio-btn');
@@ -156,6 +191,109 @@ export class WizardComponent {
     const resetBtn = document.getElementById('wizard-reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => this.resetWizard());
+    }
+  }
+
+  /**
+   * Aggiorna il banner visivo persistente dello step corrente ('idle' | 'loading' | 'error' | 'success')
+   */
+  setWizardStatus(state, message = '', options = {}) {
+    if (state === 'idle') {
+      Object.values(this.statusBanners).forEach((el) => {
+        if (!el) return;
+        el.hidden = true;
+        el.className = 'wizard-status-banner';
+        el.innerHTML = '';
+      });
+      return;
+    }
+
+    const targetStep = options.step || this.activeStep || 1;
+    // Nasconde eventuali banner sugli altri step
+    Object.entries(this.statusBanners).forEach(([stepKey, el]) => {
+      if (!el) return;
+      if (Number(stepKey) !== targetStep) {
+        el.hidden = true;
+      }
+    });
+
+    const banner = this.statusBanners[targetStep];
+    if (!banner) return;
+
+    banner.hidden = false;
+    banner.className = `wizard-status-banner is-${state}`;
+
+    const safeMsg = this.escapeHtml(message);
+    const safeDetail = options.detail ? this.escapeHtml(options.detail) : '';
+
+    if (state === 'loading') {
+      banner.innerHTML = `
+        <div class="wizard-spinner" aria-hidden="true"></div>
+        <div class="status-banner-body">
+          <strong>${safeMsg}</strong>
+          ${safeDetail ? `<p class="status-banner-detail">${safeDetail}</p>` : ''}
+        </div>
+      `;
+    } else if (state === 'error') {
+      const showPromptHelp = !options.hidePromptFallback;
+      banner.innerHTML = `
+        <div class="status-banner-body">
+          <strong>❌ ${safeMsg}</strong>
+          ${
+            showPromptHelp
+              ? `<p class="status-banner-detail">Suggerimento: verifica chiave/modello in <strong>Config</strong> (Gemini, OpenRouter Free o Groq) oppure usa subito <strong>"Copia Prompt per Chat AI"</strong> senza API Key.</p>
+                 <div class="status-banner-actions">
+                   <button type="button" class="btn btn-secondary btn-xs" data-banner-action="copy-prompt">📋 Copia Prompt per Chat AI</button>
+                   <button type="button" class="btn btn-outline btn-xs" data-banner-action="open-config">⚙️ Apri Config API</button>
+                 </div>`
+              : ''
+          }
+        </div>
+      `;
+
+      banner.querySelector('[data-banner-action="copy-prompt"]')?.addEventListener('click', () => {
+        this.copyPromptForExternalAI();
+      });
+      banner.querySelector('[data-banner-action="open-config"]')?.addEventListener('click', () => {
+        if (this.onOpenSettings) this.onOpenSettings();
+      });
+    } else if (state === 'success') {
+      banner.innerHTML = `
+        <div class="status-banner-body">
+          <strong>✅ ${safeMsg}</strong>
+          ${safeDetail ? `<p class="status-banner-detail">${safeDetail}</p>` : ''}
+        </div>
+      `;
+    }
+
+    try {
+      banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch {
+      // Ignore on environments without scrollIntoView
+    }
+  }
+
+  /**
+   * Disabilita/riabilita i pulsanti principali di generazione mostrando un testo chiaro in corso d'opera
+   */
+  setWizardBusy(isBusy, activeBtn = null, busyLabel = '') {
+    const buttons = [
+      { el: this.analyzeBtn, def: this.defaultBtnLabels.analyze },
+      { el: this.generateScadBtn, def: this.defaultBtnLabels.generate },
+      { el: this.directCompileBtn, def: this.defaultBtnLabels.direct }
+    ];
+
+    for (const item of buttons) {
+      if (!item.el) continue;
+      item.el.disabled = Boolean(isBusy);
+      const span = item.el.querySelector('span');
+      if (span) {
+        if (isBusy && item.el === activeBtn && busyLabel) {
+          span.textContent = busyLabel;
+        } else if (!isBusy) {
+          span.textContent = item.def;
+        }
+      }
     }
   }
 
@@ -184,7 +322,6 @@ export class WizardComponent {
       }
     }
     this.renderThumbnails();
-    // Reset input value so re-selecting the same image works
     if (this.fileInputEl) this.fileInputEl.value = '';
   }
 
@@ -193,8 +330,8 @@ export class WizardComponent {
     this.thumbsContainerEl.innerHTML = this.uploadedImages
       .map(
         (img, idx) => `
-        <div class="thumb-item" title="${img.name} (${img.width || '--'}×${img.height || '--'} px · ${img.sizeKb || '--'} KB JPEG)">
-          <img src="${img.dataUrl}" alt="${img.name}">
+        <div class="thumb-item" title="${this.escapeHtml(img.name)} (${img.width || '--'}×${img.height || '--'} px · ${img.sizeKb || '--'} KB JPEG)">
+          <img src="${img.dataUrl}" alt="${this.escapeHtml(img.name)}">
           <button type="button" class="thumb-remove" data-idx="${idx}" title="Rimuovi immagine">✕</button>
         </div>
       `
@@ -261,18 +398,25 @@ export class WizardComponent {
       });
     }
 
-    if (this.showToast) {
-      if (copied) {
+    if (copied) {
+      this.setWizardStatus(
+        'success',
+        'Prompt copiato negli appunti!',
+        {
+          detail: 'Incollalo nella tua chat AI insieme alle foto della scheda, poi incolla il codice .SCAD ricevuto in Studio 3D → Editor .SCAD.'
+        }
+      );
+      if (this.showToast) {
         this.showToast(
           'Prompt copiato! Incollalo nella tua chat AI insieme alle foto, poi riporta qui il codice .SCAD nello Studio 3D',
           'success'
         );
-      } else {
-        this.showToast(
-          'Copia automatica bloccata dal browser: consenti l\'accesso agli appunti o usa HTTPS.',
-          'warning'
-        );
       }
+    } else if (this.showToast) {
+      this.showToast(
+        'Copia automatica bloccata dal browser: consenti l\'accesso agli appunti o usa HTTPS.',
+        'warning'
+      );
     }
   }
 
@@ -304,7 +448,7 @@ export class WizardComponent {
   }
 
   /**
-   * Step 2: Esegue l'analisi AI Vision ("Clarification First") allegando le immagini in Base64
+   * Step 2: Esegue l'analisi AI Vision ("Clarification First") con stato UI esplicito e try/catch/finally
    */
   async runStep2Analysis() {
     const name = (this.nameInputEl?.value || '').trim() || 'Nuova Scheda PCB';
@@ -316,12 +460,15 @@ export class WizardComponent {
     const preset = this.presetSelectEl?.value || 'auto';
     const notes = (this.notesInputEl?.value || '').trim();
     const existingScad = (this.baseScadInputEl?.value || '').trim();
+    const settings = storageService.getSettings();
+    const providerCfg = AI_PROVIDERS_CONFIG[settings.aiProvider] || AI_PROVIDERS_CONFIG.gemini;
+    const activeModel = settings.aiModel || providerCfg.defaultModel;
 
-    const analyzeBtn = document.getElementById('wizard-analyze-btn');
-    if (analyzeBtn) {
-      analyzeBtn.disabled = true;
-      analyzeBtn.querySelector('span').textContent = `Analisi AI Vision in corso (${this.uploadedImages.length} foto)...`;
-    }
+    this.setWizardBusy(true, this.analyzeBtn, '⏳ Invio immagini all\'AI...');
+    this.setWizardStatus('loading', '⏳ Invio immagini all\'AI in corso...', {
+      step: 1,
+      detail: `Provider: ${providerCfg.label} · Modello: ${activeModel} · Foto allegate: ${this.uploadedImages.length}`
+    });
 
     try {
       const analysis = await aiService.analyzeBoardImages({
@@ -335,7 +482,6 @@ export class WizardComponent {
 
       this.currentAnalysis = analysis;
 
-      // Se l'AI ha identificato il nome preciso della scheda dalla foto e l'utente aveva lasciato un nome generico, aggiorniamolo
       if (
         analysis.boardIdentified &&
         this.nameInputEl &&
@@ -347,23 +493,25 @@ export class WizardComponent {
       this.renderClarificationForm(analysis);
       this.goToStep(2);
 
-      if (analysis.hasExistingScad && this.showToast) {
-        this.showToast('Quote estratte dal tuo codice .SCAD! Verifica i valori e procedi allo Step 3.', 'success');
-      } else if (this.showToast) {
-        this.showToast(
-          `Analisi AI Vision completata (${this.uploadedImages.length} immagini Base64 inviate). Verifica le quote lette dalla foto!`,
-          'success'
-        );
+      if (analysis.hasExistingScad) {
+        this.setWizardStatus('success', 'Quote estratte dal tuo codice .SCAD!', {
+          step: 2,
+          detail: 'Verifica o modifica i parametri qui sotto e premi "Genera OpenSCAD + Compila STL & 3MF".'
+        });
+      } else {
+        this.setWizardStatus('success', `Analisi AI completata (${this.uploadedImages.length} foto elaborate)!`, {
+          step: 2,
+          detail: 'Conferma o correggi le misure rilevate, poi premi "Genera OpenSCAD + Compila STL & 3MF".'
+        });
       }
     } catch (err) {
+      const msg = err?.message || String(err);
+      this.setWizardStatus('error', msg, { step: 1 });
       if (this.showToast) {
-        this.showToast(err.message, 'error');
+        this.showToast(msg, 'error');
       }
     } finally {
-      if (analyzeBtn) {
-        analyzeBtn.disabled = false;
-        analyzeBtn.querySelector('span').textContent = 'Analizza & Verifica Quote / Modifiche (Step 2)';
-      }
+      this.setWizardBusy(false, this.analyzeBtn);
     }
   }
 
@@ -384,11 +532,11 @@ export class WizardComponent {
       .map(
         (q) => `
         <div class="form-group">
-          <label for="clarify-${q.id}">${q.label} (${q.unit || 'mm'})</label>
+          <label for="clarify-${this.escapeHtml(q.id)}">${this.escapeHtml(q.label)} (${this.escapeHtml(q.unit || 'mm')})</label>
           <input
-            type="${q.type || 'number'}"
-            id="clarify-${q.id}"
-            name="${q.id}"
+            type="${this.escapeHtml(q.type || 'number')}"
+            id="clarify-${this.escapeHtml(q.id)}"
+            name="${this.escapeHtml(q.id)}"
             value="${q.suggestedValue ?? ''}"
             min="${q.min ?? 0}"
             max="${q.max ?? 500}"
@@ -416,42 +564,54 @@ export class WizardComponent {
 
   /**
    * Step 3: Generazione/Modifica script OpenSCAD autentico, Compilazione Web Worker e Auto-Fix Loop (max 2 tentativi).
-   * NESSUN FALLBACK MOCK: non sovrascrive mai lo script con template ESP32/Freenove!
+   * Completamente protetto da try/catch/finally con feedback visivo persistente.
    */
   async runStep3Generation(directCompileExistingScad = false) {
     this.goToStep(3);
     if (this.step3ActionsEl) this.step3ActionsEl.hidden = true;
     if (this.pipelineLogEl) this.pipelineLogEl.innerHTML = '';
 
-    const name = (this.nameInputEl?.value || 'Scheda Custom 3D').trim() || 'Scheda Custom 3D';
-    const category = this.categorySelectEl?.value || 'MCU Development Board';
-    const preset = this.presetSelectEl?.value || 'auto';
-    const notes = (this.notesInputEl?.value || '').trim();
-    const existingScad = (this.baseScadInputEl?.value || '').trim();
-    const parameters = directCompileExistingScad
-      ? aiService.extractDimensionsFromNotesAndScad(notes, existingScad)
-      : this.collectClarifiedParameters();
-
-    const slug = this.slugify(name);
-
-    this.appendLog(`Avvio generazione OpenSCAD 100% Manifold per "${name}" (${slug})...`, 'info');
-    if (this.uploadedImages.length > 0) {
-      const totalKb = this.uploadedImages.reduce((acc, img) => acc + (img.sizeKb || 0), 0);
-      this.appendLog(
-        `Payload multimodale attivo: ${this.uploadedImages.length} immagini Base64 allegate (${totalKb} KB).`,
-        'info'
-      );
-    }
+    const activeTriggerBtn = directCompileExistingScad ? this.directCompileBtn : this.generateScadBtn;
+    this.setWizardBusy(true, activeTriggerBtn, '⏳ Elaborazione in corso...');
 
     try {
+      const name = (this.nameInputEl?.value || 'Scheda Custom 3D').trim() || 'Scheda Custom 3D';
+      const category = this.categorySelectEl?.value || 'MCU Development Board';
+      const preset = this.presetSelectEl?.value || 'auto';
+      const notes = (this.notesInputEl?.value || '').trim();
+      const existingScad = (this.baseScadInputEl?.value || '').trim();
+      const settings = storageService.getSettings();
+      const providerCfg = AI_PROVIDERS_CONFIG[settings.aiProvider] || AI_PROVIDERS_CONFIG.gemini;
+      const activeModel = settings.aiModel || providerCfg.defaultModel;
+
+      const parameters = directCompileExistingScad
+        ? aiService.extractDimensionsFromNotesAndScad(notes, existingScad)
+        : this.collectClarifiedParameters();
+
+      const slug = this.slugify(name);
+
+      this.appendLog(`Avvio generazione OpenSCAD 100% Manifold per "${name}" (${slug})...`, 'info');
+      if (this.uploadedImages.length > 0) {
+        const totalKb = this.uploadedImages.reduce((acc, img) => acc + (img.sizeKb || 0), 0);
+        this.appendLog(
+          `Payload multimodale attivo: ${this.uploadedImages.length} immagini JPEG ottimizzate (${totalKb} KB).`,
+          'info'
+        );
+      }
+
       let scadCode = '';
       if (directCompileExistingScad && existingScad) {
+        this.setWizardStatus('loading', '⚙️ Preparazione script .SCAD utente in corso...', { step: 3 });
         this.appendLog('Modalità Compilazione Diretta: utilizzo il codice .SCAD fornito dall\'utente...', 'info');
         const cleanedSeed = aiService.extractCleanScadCode(existingScad);
         scadCode = notes
           ? aiService.applyModificationsToExistingScad(cleanedSeed, parameters, notes, name)
           : cleanedSeed;
       } else {
+        this.setWizardStatus('loading', '⏳ Invio immagini all\'AI in corso...', {
+          step: 3,
+          detail: `Provider: ${providerCfg.label} · Modello: ${activeModel}`
+        });
         this.appendLog(
           `Quote confermate: PCB ${parameters.pcb_length} × ${parameters.pcb_width} × ${parameters.pcb_thickness || 1.6} mm.`,
           'info'
@@ -482,6 +642,10 @@ export class WizardComponent {
       const maxAttempts = 2;
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        this.setWizardStatus('loading', '⚙️ Compilazione STL e 3MF nel browser...', {
+          step: 3,
+          detail: `Tentativo ${attempt}/${maxAttempts} nel Web Worker OpenSCAD AST CSG`
+        });
         this.appendLog(`[Tentativo ${attempt}/${maxAttempts}] Compilazione OpenSCAD -> model.stl & model.3mf...`, 'info');
         compileResult = await this.compileScadWithWorker(scadCode);
 
@@ -497,6 +661,10 @@ export class WizardComponent {
         this.appendLog(`Errore segnalato dal compilatore: ${issueMsg}. Avvio Auto-Fix AI...`, 'warn');
 
         if (attempt < maxAttempts) {
+          this.setWizardStatus('loading', '🔧 Auto-Fix OpenSCAD con AI in corso...', {
+            step: 3,
+            detail: issueMsg
+          });
           scadCode = await aiService.autoFixManifoldScript(
             scadCode,
             issueMsg,
@@ -510,7 +678,7 @@ export class WizardComponent {
       if (!compileResult || !compileResult.ok) {
         throw new Error(
           compileResult?.error ||
-            'Il compilatore OpenSCAD non è riuscito a generare la mesh dopo 2 tentativi. Puoi aprire lo Studio 3D per ispezionare e modificare lo script.'
+            'Il compilatore OpenSCAD non è riuscito a generare la mesh dopo 2 tentativi. Apri Studio 3D o usa "Copia Prompt per Chat AI".'
         );
       }
 
@@ -557,18 +725,26 @@ export class WizardComponent {
         'ok'
       );
 
-      if (this.onModelGenerated) {
-        await this.onModelGenerated(this.generatedModelData, false);
-      }
+      this.setWizardStatus('success', 'Modello 3D generato e compilato! Apertura Studio 3D...', {
+        step: 3,
+        detail: `${compileResult.metrics.triangles} triangoli · ${dims.length} × ${dims.width} × ${dims.height} mm`
+      });
 
-      this.appendLog('Modello salvato automaticamente in IndexedDB locale e pronto nello Studio 3D!', 'ok');
-      if (this.step3ActionsEl) this.step3ActionsEl.hidden = false;
-    } catch (err) {
-      this.appendLog(`ERRORE: ${err.message}`, 'warn');
-      if (this.step3ActionsEl) this.step3ActionsEl.hidden = false;
-      if (this.showToast) {
-        this.showToast(err.message, 'error');
+      this.appendLog('Modello salvato automaticamente in IndexedDB locale. Passaggio allo Studio 3D...', 'ok');
+
+      if (this.onModelGenerated) {
+        await this.onModelGenerated(this.generatedModelData, true);
       }
+    } catch (err) {
+      const errMsg = err?.message || String(err);
+      this.appendLog(`ERRORE: ${errMsg}`, 'error');
+      this.setWizardStatus('error', errMsg, { step: 3 });
+      if (this.showToast) {
+        this.showToast(errMsg, 'error');
+      }
+    } finally {
+      this.setWizardBusy(false, activeTriggerBtn);
+      if (this.step3ActionsEl) this.step3ActionsEl.hidden = false;
     }
   }
 
@@ -583,6 +759,7 @@ export class WizardComponent {
   }
 
   goToStep(stepNum) {
+    this.activeStep = stepNum;
     this.stepperItems.forEach((item) => {
       const s = Number(item.dataset.step);
       item.classList.toggle('active', s === stepNum);
@@ -597,12 +774,22 @@ export class WizardComponent {
   resetWizard() {
     this.uploadedImages = [];
     this.currentAnalysis = null;
+    this.generatedModelData = null;
     this.renderThumbnails();
     if (this.nameInputEl) this.nameInputEl.value = '';
     if (this.notesInputEl) this.notesInputEl.value = '';
     if (this.baseScadInputEl) this.baseScadInputEl.value = '';
     if (this.scadFileInputEl) this.scadFileInputEl.value = '';
+    this.setWizardStatus('idle');
     this.goToStep(1);
+  }
+
+  escapeHtml(str = '') {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   slugify(text = '') {

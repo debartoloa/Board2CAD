@@ -11,7 +11,7 @@ import { GalleryComponent } from './components/gallery.js';
 import { WizardComponent } from './components/wizard.js';
 import { SettingsComponent } from './components/settings.js';
 
-export const APP_VERSION = 'v1.4.0';
+export const APP_VERSION = 'v1.5.0';
 
 class Board2CADApp {
   constructor() {
@@ -65,6 +65,7 @@ class Board2CADApp {
       compileScadWithWorker: (scadCode, overrides) => this.compileScad(scadCode, overrides),
       onModelGenerated: (modelData, switchToStudio) => this.handleNewWizardModel(modelData, switchToStudio),
       onPrepareDraftFromPrompt: (draftInfo) => this.prepareDraftModelForStudio(draftInfo),
+      onOpenSettings: () => this.settings.open(),
       showToast: (msg, type) => this.showToast(msg, type)
     });
 
@@ -1355,12 +1356,19 @@ class Board2CADApp {
     if (!pill) return;
     const label = pill.querySelector('.status-label');
     if (label) {
+      const providerNames = {
+        gemini: 'Gemini',
+        openrouter: 'OpenRouter',
+        groq: 'Groq',
+        openai: 'OpenAI'
+      };
       const hasAi = Boolean(s.aiApiKey && s.aiProvider !== 'offline');
+      const pLabel = providerNames[s.aiProvider] || 'AI Vision';
       const hasGh = Boolean(s.ghToken && s.ghOwner);
       if (hasAi && hasGh) {
-        label.textContent = 'AI + GitHub Ready';
+        label.textContent = `${pLabel} + GitHub Ready`;
       } else if (hasAi) {
-        label.textContent = 'AI Vision Ready';
+        label.textContent = `${pLabel} Ready`;
       } else {
         label.textContent = 'AST CSG Ready';
       }
