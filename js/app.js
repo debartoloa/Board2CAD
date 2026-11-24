@@ -11,7 +11,7 @@ import { GalleryComponent } from './components/gallery.js';
 import { WizardComponent } from './components/wizard.js';
 import { SettingsComponent } from './components/settings.js';
 
-export const APP_VERSION = 'v1.5.1';
+export const APP_VERSION = 'v1.6.0';
 
 class Board2CADApp {
   constructor() {

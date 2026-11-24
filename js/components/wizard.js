@@ -28,6 +28,8 @@ export class WizardComponent {
     this.currentAnalysis = null;
     this.generatedModelData = null;
     this.activeStep = 1;
+    this.lastStep3DirectMode = false;
+    this.lastClarifiedParameters = null;
 
     // Elementi DOM Step 1..3
     this.stepperItems = document.querySelectorAll('.wizard-stepper .step-item');
@@ -60,11 +62,14 @@ export class WizardComponent {
     this.analyzeBtn = document.getElementById('wizard-analyze-btn');
     this.generateScadBtn = document.getElementById('wizard-generate-scad-btn');
     this.directCompileBtn = document.getElementById('wizard-direct-compile-scad-btn');
+    this.retryStep3Btn = document.getElementById('wizard-retry-step3-btn');
+    this.openStudioBtn = document.getElementById('wizard-open-studio-btn');
 
     this.defaultBtnLabels = {
       analyze: this.analyzeBtn?.querySelector('span')?.textContent || 'Analizza & Verifica Quote / Modifiche (Step 2)',
       generate: this.generateScadBtn?.querySelector('span')?.textContent || 'Genera OpenSCAD + Compila STL & 3MF (Step 3)',
-      direct: this.directCompileBtn?.querySelector('span')?.textContent || 'Compila Direttamente il mio .SCAD così com\'è (Vai a Step 3)'
+      direct: this.directCompileBtn?.querySelector('span')?.textContent || 'Compila Direttamente il mio .SCAD così com\'è (Vai a Step 3)',
+      retryStep3: this.retryStep3Btn?.querySelector('span')?.textContent || '🔄 Riprova Generazione'
     };
 
     this.bindEvents();
@@ -179,9 +184,14 @@ export class WizardComponent {
       });
     }
 
-    const openStudioBtn = document.getElementById('wizard-open-studio-btn');
-    if (openStudioBtn) {
-      openStudioBtn.addEventListener('click', () => {
+    if (this.retryStep3Btn) {
+      this.retryStep3Btn.addEventListener('click', () => {
+        this.runStep3Generation(this.lastStep3DirectMode);
+      });
+    }
+
+    if (this.openStudioBtn) {
+      this.openStudioBtn.addEventListener('click', () => {
         if (this.generatedModelData && this.onModelGenerated) {
           this.onModelGenerated(this.generatedModelData, true);
         }
@@ -236,6 +246,10 @@ export class WizardComponent {
       `;
     } else if (state === 'error') {
       const showPromptHelp = !options.hidePromptFallback;
+      const retryActionHtml =
+        targetStep === 3
+          ? `<button type="button" class="btn btn-primary btn-xs" data-banner-action="retry-step3">🔄 Riprova Generazione</button>`
+          : '';
       banner.innerHTML = `
         <div class="status-banner-body">
           <strong>❌ ${safeMsg}</strong>
@@ -243,6 +257,7 @@ export class WizardComponent {
             showPromptHelp
               ? `<p class="status-banner-detail">Suggerimento: verifica chiave/modello in <strong>Config</strong> (Gemini, OpenRouter Free o Groq) oppure usa subito <strong>"Copia Prompt per Chat AI"</strong> senza API Key.</p>
                  <div class="status-banner-actions">
+                   ${retryActionHtml}
                    <button type="button" class="btn btn-secondary btn-xs" data-banner-action="copy-prompt">📋 Copia Prompt per Chat AI</button>
                    <button type="button" class="btn btn-outline btn-xs" data-banner-action="open-config">⚙️ Apri Config API</button>
                  </div>`
@@ -251,6 +266,9 @@ export class WizardComponent {
         </div>
       `;
 
+      banner.querySelector('[data-banner-action="retry-step3"]')?.addEventListener('click', () => {
+        this.runStep3Generation(this.lastStep3DirectMode);
+      });
       banner.querySelector('[data-banner-action="copy-prompt"]')?.addEventListener('click', () => {
         this.copyPromptForExternalAI();
       });
@@ -280,7 +298,8 @@ export class WizardComponent {
     const buttons = [
       { el: this.analyzeBtn, def: this.defaultBtnLabels.analyze },
       { el: this.generateScadBtn, def: this.defaultBtnLabels.generate },
-      { el: this.directCompileBtn, def: this.defaultBtnLabels.direct }
+      { el: this.directCompileBtn, def: this.defaultBtnLabels.direct },
+      { el: this.retryStep3Btn, def: this.defaultBtnLabels.retryStep3 }
     ];
 
     for (const item of buttons) {
@@ -477,7 +496,13 @@ export class WizardComponent {
         preset,
         notes,
         images: this.uploadedImages,
-        existingScad
+        existingScad,
+        onStatus: (statusMsg) => {
+          this.setWizardStatus('loading', statusMsg, {
+            step: 1,
+            detail: 'Gestione automatica retry e fallback modelli in corso...'
+          });
+        }
       });
 
       this.currentAnalysis = analysis;
@@ -567,12 +592,21 @@ export class WizardComponent {
    * Completamente protetto da try/catch/finally con feedback visivo persistente.
    */
   async runStep3Generation(directCompileExistingScad = false) {
+    this.lastStep3DirectMode = Boolean(directCompileExistingScad);
+    this.generatedModelData = null;
+    if (this.openStudioBtn) this.openStudioBtn.hidden = true;
+
     this.goToStep(3);
     if (this.step3ActionsEl) this.step3ActionsEl.hidden = true;
     if (this.pipelineLogEl) this.pipelineLogEl.innerHTML = '';
 
     const activeTriggerBtn = directCompileExistingScad ? this.directCompileBtn : this.generateScadBtn;
     this.setWizardBusy(true, activeTriggerBtn, '⏳ Elaborazione in corso...');
+
+    const handleCascadeStatus = (statusMsg) => {
+      this.appendLog(statusMsg, 'warn');
+      this.setWizardStatus('loading', statusMsg, { step: 3 });
+    };
 
     try {
       const name = (this.nameInputEl?.value || 'Scheda Custom 3D').trim() || 'Scheda Custom 3D';
@@ -584,17 +618,36 @@ export class WizardComponent {
       const providerCfg = AI_PROVIDERS_CONFIG[settings.aiProvider] || AI_PROVIDERS_CONFIG.gemini;
       const activeModel = settings.aiModel || providerCfg.defaultModel;
 
-      const parameters = directCompileExistingScad
-        ? aiService.extractDimensionsFromNotesAndScad(notes, existingScad)
-        : this.collectClarifiedParameters();
+      let parameters;
+      if (directCompileExistingScad) {
+        parameters = aiService.extractDimensionsFromNotesAndScad(notes, existingScad);
+      } else {
+        const collected = this.collectClarifiedParameters();
+        if (Object.keys(collected).length > 0) {
+          this.lastClarifiedParameters = collected;
+          parameters = collected;
+        } else {
+          parameters = this.lastClarifiedParameters || aiService.extractDimensionsFromNotesAndScad(notes, existingScad);
+        }
+      }
 
       const slug = this.slugify(name);
+      const hasStep2Blueprint = Boolean(
+        !directCompileExistingScad &&
+          this.currentAnalysis &&
+          ((Array.isArray(this.currentAnalysis.detectedComponents) && this.currentAnalysis.detectedComponents.length > 0) ||
+            (this.currentAnalysis.summary && this.currentAnalysis.summary.trim().length > 10))
+      );
 
       this.appendLog(`Avvio generazione OpenSCAD 100% Manifold per "${name}" (${slug})...`, 'info');
-      if (this.uploadedImages.length > 0) {
-        const totalKb = this.uploadedImages.reduce((acc, img) => acc + (img.sizeKb || 0), 0);
+      if (!directCompileExistingScad && hasStep2Blueprint) {
         this.appendLog(
-          `Payload multimodale attivo: ${this.uploadedImages.length} immagini JPEG ottimizzate (${totalKb} KB).`,
+          'Payload Step 3 leggero attivo: solo testo strutturato + quote confermate dallo Step 2 (0 immagini riallegate) per massima velocità e zero timeout.',
+          'info'
+        );
+      } else if (!directCompileExistingScad && this.uploadedImages.length > 0) {
+        this.appendLog(
+          'Payload Step 3 ottimizzato: max 1 immagine ridimensionata (768px JPEG) + quote confermate.',
           'info'
         );
       }
@@ -608,10 +661,16 @@ export class WizardComponent {
           ? aiService.applyModificationsToExistingScad(cleanedSeed, parameters, notes, name)
           : cleanedSeed;
       } else {
-        this.setWizardStatus('loading', '⏳ Invio immagini all\'AI in corso...', {
-          step: 3,
-          detail: `Provider: ${providerCfg.label} · Modello: ${activeModel}`
-        });
+        this.setWizardStatus(
+          'loading',
+          hasStep2Blueprint
+            ? '⏳ Generazione OpenSCAD dal blueprint Step 2...'
+            : '⏳ Invio richiesta all\'AI in corso...',
+          {
+            step: 3,
+            detail: `Provider: ${providerCfg.label} · Modello: ${activeModel}`
+          }
+        );
         this.appendLog(
           `Quote confermate: PCB ${parameters.pcb_length} × ${parameters.pcb_width} × ${parameters.pcb_thickness || 1.6} mm.`,
           'info'
@@ -631,7 +690,8 @@ export class WizardComponent {
           parameters,
           images: this.uploadedImages,
           existingScad,
-          analysisContext: this.currentAnalysis
+          analysisContext: this.currentAnalysis,
+          onStatus: handleCascadeStatus
         });
       }
 
@@ -670,7 +730,8 @@ export class WizardComponent {
             issueMsg,
             parameters,
             name,
-            this.uploadedImages
+            [],
+            handleCascadeStatus
           );
         }
       }
@@ -719,6 +780,7 @@ export class WizardComponent {
         metrics: compileResult.metrics,
         previewDataUrl: this.uploadedImages[0]?.dataUrl || './icon-512.png'
       };
+      if (this.openStudioBtn) this.openStudioBtn.hidden = false;
 
       this.appendLog(
         `File generati: model.scad, model.stl (${Math.round((compileResult.stlBuffer?.byteLength || 0) / 1024)} KB), model.3mf (${Math.round((compileResult.threemfBuffer?.byteLength || 0) / 1024)} KB), meta.json.`,
@@ -775,6 +837,9 @@ export class WizardComponent {
     this.uploadedImages = [];
     this.currentAnalysis = null;
     this.generatedModelData = null;
+    this.lastStep3DirectMode = false;
+    this.lastClarifiedParameters = null;
+    if (this.openStudioBtn) this.openStudioBtn.hidden = true;
     this.renderThumbnails();
     if (this.nameInputEl) this.nameInputEl.value = '';
     if (this.notesInputEl) this.notesInputEl.value = '';

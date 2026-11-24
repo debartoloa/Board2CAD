@@ -16,8 +16,10 @@ export const AI_PROVIDERS_CONFIG = {
     recommendedModels: [
       'gemini-3.8-flash',
       'gemini-3.6-flash',
+      'gemini-3.5-flash',
       'gemini-3.1-pro-preview',
-      'gemma-4-31b-it'
+      'gemma-4-31b-it',
+      'gemma-4-26b-a4b-it'
     ],
     keyPlaceholder: 'AIzaSy...'
   },
@@ -27,7 +29,8 @@ export const AI_PROVIDERS_CONFIG = {
     defaultModel: 'qwen/qwen2.5-vl-72b-instruct:free',
     recommendedModels: [
       'qwen/qwen2.5-vl-72b-instruct:free',
-      'google/gemma-3-27b-it:free'
+      'google/gemma-3-27b-it:free',
+      'meta-llama/llama-3.3-70b-instruct:free'
     ],
     keyPlaceholder: 'sk-or-v1-...'
   },
@@ -36,11 +39,87 @@ export const AI_PROVIDERS_CONFIG = {
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
     defaultModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
     recommendedModels: [
-      'meta-llama/llama-4-scout-17b-16e-instruct'
+      'meta-llama/llama-4-scout-17b-16e-instruct',
+      'llama-3.3-70b-versatile'
     ],
     keyPlaceholder: 'gsk_...'
   }
 };
+
+const GEMINI_CASCADE_SEQUENCE = [
+  'gemma-4-31b-it',
+  'gemma-4-26b-a4b-it',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.8-flash'
+];
+
+/**
+ * Costruisce dinamicamente la catena ordinata (deduplicata) di modelli e provider fallback
+ * a partire dalle impostazioni utente:
+ * - Su Gemini parte da [selectedModel, 'gemma-4-31b-it', 'gemma-4-26b-a4b-it', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.8-flash']
+ * - Accoda eventuali provider secondari (Groq / OpenRouter / Gemini) se l'utente ha salvato la relativa API Key.
+ */
+export function buildModelCascadePlan(settings = {}) {
+  const primaryProvider = settings.aiProvider || 'gemini';
+  const primaryKey = (
+    settings.aiApiKey ||
+    settings.providerProfiles?.[primaryProvider]?.apiKey ||
+    ''
+  ).trim();
+
+  if (primaryProvider === 'offline' || !primaryKey) {
+    return [];
+  }
+
+  const activeCfg = AI_PROVIDERS_CONFIG[primaryProvider] || AI_PROVIDERS_CONFIG.gemini;
+  const selectedModel = (
+    settings.aiModel ||
+    settings.providerProfiles?.[primaryProvider]?.model ||
+    activeCfg.defaultModel ||
+    ''
+  ).trim();
+
+  const plan = [];
+  const seen = new Set();
+  const pushCandidate = (providerId, modelName, apiKey) => {
+    const cleanModel = String(modelName || '').trim();
+    const cleanKey = String(apiKey || '').trim();
+    if (!providerId || !cleanModel || !cleanKey) return;
+    const dedupKey = `${providerId}::${cleanModel}`;
+    if (seen.has(dedupKey)) return;
+    seen.add(dedupKey);
+    const label = AI_PROVIDERS_CONFIG[providerId]?.label || providerId;
+    plan.push({ provider: providerId, model: cleanModel, apiKey: cleanKey, label });
+  };
+
+  if (primaryProvider === 'gemini') {
+    const orderedGeminiModels = [selectedModel, ...GEMINI_CASCADE_SEQUENCE];
+    for (const m of orderedGeminiModels) {
+      pushCandidate('gemini', m, primaryKey);
+    }
+  } else {
+    const orderedProviderModels = [selectedModel, ...(activeCfg.recommendedModels || [])];
+    for (const m of orderedProviderModels) {
+      pushCandidate(primaryProvider, m, primaryKey);
+    }
+  }
+
+  // Fallback cross-provider in coda se sono configurate chiavi per altri provider
+  const crossProviderOrder = ['groq', 'openrouter', 'gemini'];
+  for (const otherId of crossProviderOrder) {
+    if (otherId === primaryProvider) continue;
+    const profile = settings.providerProfiles?.[otherId];
+    const otherKey = (profile?.apiKey || '').trim();
+    if (!otherKey) continue;
+    const otherCfg = AI_PROVIDERS_CONFIG[otherId];
+    if (!otherCfg) continue;
+    const otherModel = (profile?.model || otherCfg.defaultModel || '').trim();
+    pushCandidate(otherId, otherModel, otherKey);
+  }
+
+  return plan;
+}
 
 /**
  * Estrae il testo di risposta effettivo da Google Gemini / Gemma,
@@ -169,13 +248,17 @@ export class AIService {
    *   e invia le immagini in Base64 al modello multimodale per leggere quote e componenti reali.
    * - Se manca l'API Key o la chiamata fallisce, lancia un errore esplicito all'utente (zero fallback finti!).
    */
-  async analyzeBoardImages({ name, category, preset, notes, images = [], existingScad = '' }) {
+  async analyzeBoardImages({ name, category, preset, notes, images = [], existingScad = '', onStatus = null }) {
     const settings = storageService.getSettings();
     const hasExistingScad = Boolean(existingScad && existingScad.trim().length > 20);
     const parsedFromInput = this.extractDimensionsFromNotesAndScad(notes, existingScad);
+    const activeProvider = settings.aiProvider || 'gemini';
+    const hasApiKey = Boolean(
+      (settings.aiApiKey || settings.providerProfiles?.[activeProvider]?.apiKey || '').trim()
+    );
 
     // Caso A: L'utente ha fornito un codice .SCAD esistente e non ha configurato un'API Key (o è in modalità offline)
-    if (hasExistingScad && (!settings.aiApiKey || settings.aiProvider === 'offline')) {
+    if (hasExistingScad && (!hasApiKey || activeProvider === 'offline')) {
       return this.buildScadOnlyClarificationPlan({
         name,
         notes,
@@ -185,7 +268,7 @@ export class AIService {
     }
 
     // Caso B: Generazione da Foto / Note -> Richiede API Key AI Vision valida (Zero mock / Zero template ESP32 finti!)
-    if (!settings.aiApiKey || settings.aiProvider === 'offline') {
+    if (!hasApiKey || activeProvider === 'offline') {
       throw new Error(
         'API Key AI Vision non configurata (HTTP 401). Apri Config (icona ingranaggio), seleziona Google Gemini, OpenRouter o Groq e inserisci la tua API Key, oppure usa "Copia Prompt per Chat AI".'
       );
@@ -205,7 +288,8 @@ export class AIService {
       notes,
       images,
       existingScad,
-      parsedFromInput
+      parsedFromInput,
+      onStatus
     });
   }
 
@@ -307,7 +391,7 @@ export class AIService {
    * Invia le immagini reali in Base64 e chiede all'AI di leggere le quote stampate nell'immagine
    * e identificare i componenti effettivamente visibili sulla scheda.
    */
-  async callVisionAnalysisAPI(settings, { name, category, notes, images = [], existingScad = '', parsedFromInput }) {
+  async callVisionAnalysisAPI(settings, { name, category, notes, images = [], existingScad = '', parsedFromInput, onStatus = null }) {
     const scadContext = existingScad && existingScad.trim()
       ? `\nCODICE OPENSCAD DI PARTENZA FORNITO DALL'UTENTE:\n${existingScad.slice(0, 6000)}\n`
       : '';
@@ -320,17 +404,18 @@ export class AIService {
 
 COMPITO DI ANALISI VISIVA (CLARIFICATION FIRST):
 1. Leggi TUTTE le quote numeriche (in mm o pollici convertiti in mm) direttamente dalle frecce di quotatura o dal testo visibile nell'immagine allegata (ad esempio se nell'immagine sono quotati 68.6mm e 53.4mm per un Arduino Uno R3, usa esattamente 68.6 e 53.4!).
-2. Riconosci il modello esatto della scheda e tutti i componenti realmente presenti nella foto (es. colore e forma del PCB, tipo e posizione del connettore USB-B / USB-C / Micro-USB, eventuale Jack DC cilindrico, chip DIP su zoccolo o SMD QFN/SOIC, pin header femmina o maschi, pulsante RESET, quarzo, condensatori, fori di fissaggio e relative coordinate).
-3. NON inventare componenti che non sono presenti nella foto (non citare mai display IPS, microSD, JST o ESP32 se nella foto c'è un Arduino Uno o un'altra scheda!).
-4. Restituisci un oggetto JSON valido con questa struttura:
+2. Riconosci il modello esatto della scheda e tutti i componenti realmente presenti nella foto (es. colore esadecimale e sagoma del PCB, tipo e posizione del connettore USB-B / USB-C / Micro-USB, eventuale Jack DC cilindrico, chip DIP su zoccolo o SMD QFN/SOIC, pin header femmina o maschi, pulsante RESET, quarzo, condensatori, fori di fissaggio e principali scritte serigrafiche).
+3. Per ogni componente nell'array "detectedComponents", specifica: nome/tipo, coordinate approssimative (X, Y) in mm rispetto all'angolo inferiore sinistro (0, 0) del PCB, ingombro L × W × H in mm, lato/bordo di affaccio (se connettore perimetrale) e colore esadecimale #RRGGBB, così da fornire un blueprint completo per la fase OpenSCAD successiva.
+4. NON inventare componenti che non sono presenti nella foto (non citare mai display IPS, microSD, JST o ESP32 se nella foto c'è un Arduino Uno o un'altra scheda!).
+5. Restituisci un oggetto JSON valido con questa struttura:
 {
   "needsClarification": true,
   "boardIdentified": "Nome esatto della scheda riconosciuta dalla foto",
   "pcbColorHex": "#005c99",
   "detectedComponents": [
-    "Elenco dettagliato di ogni componente reale visto nella foto con la sua posizione e dimensione stimata in mm"
+    "Tipo componente — pos (X, Y) mm, dim L×W×H mm, bordo/orientamento, colore #RRGGBB"
   ],
-  "summary": "Sintesi tecnica precisa di ciò che si vede nell'immagine allegata e delle quote lette direttamente dalla foto",
+  "summary": "Sintesi tecnica precisa di ciò che si vede nell'immagine allegata e delle quote lette direttamente dalla foto (inclusa forma PCB e posizione fori)",
   "questions": [
     { "id": "pcb_length", "label": "Lunghezza Totale PCB (letta dalla foto, Asse X)", "unit": "mm", "type": "number", "min": 5, "max": 400, "step": 0.1, "suggestedValue": <numero_letto_dalla_foto> },
     { "id": "pcb_width", "label": "Larghezza Totale PCB (letta dalla foto, Asse Y)", "unit": "mm", "type": "number", "min": 5, "max": 400, "step": 0.1, "suggestedValue": <numero_letto_dalla_foto> },
@@ -341,7 +426,7 @@ COMPITO DI ANALISI VISIVA (CLARIFICATION FIRST):
 }
 Puoi aggiungere nell'array "questions" altri 1-3 parametri specifici della scheda vista in foto se sono utili per l'ingombro meccanico (es. sporgenza connettore USB/Jack DC o altezza pin header/zoccolo).`;
 
-    const rawText = await this.invokeMultimodalLLM(settings, prompt, images, true);
+    const rawText = await this.invokeMultimodalLLM(settings, prompt, images, true, { onStatus });
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('L\'API AI Vision non ha restituito un JSON di analisi valido. Riprova o verifica il modello selezionato nelle Impostazioni.');
@@ -369,7 +454,8 @@ Puoi aggiungere nell'array "questions" altri 1-3 parametri specifici della sched
 
   /**
    * Step 3 del Wizard: Genera o modifica lo script OpenSCAD 100% manifold.
-   * Allega SEMPRE le immagini originali in Base64 insieme alle quote confermate e alla lista componenti rilevati nello Step 2!
+   * Quando analysisContext dallo Step 2 è presente, invia un payload leggero SOLO TESTO
+   * (zero immagini riallegate) per abbattere latenza ed errori HTTP 503; altrimenti allega al max 1 foto ridotta (768px).
    */
   async generateOpenSCAD({
     name,
@@ -379,32 +465,59 @@ Puoi aggiungere nell'array "questions" altri 1-3 parametri specifici della sched
     parameters,
     images = [],
     existingScad = '',
-    analysisContext = null
+    analysisContext = null,
+    onStatus = null
   }) {
     const settings = storageService.getSettings();
     const hasExistingScad = Boolean(existingScad && existingScad.trim().length > 20);
+    const activeProvider = settings.aiProvider || 'gemini';
+    const hasApiKey = Boolean(
+      (settings.aiApiKey || settings.providerProfiles?.[activeProvider]?.apiKey || '').trim()
+    );
 
     // Se l'utente è in modalità offline e ha fornito un proprio script .SCAD esistente, applica le modifiche locali allo script
-    if (hasExistingScad && (!settings.aiApiKey || settings.aiProvider === 'offline')) {
+    if (hasExistingScad && (!hasApiKey || activeProvider === 'offline')) {
       return this.applyModificationsToExistingScad(existingScad, parameters, notes, name);
     }
 
-    if (!settings.aiApiKey || settings.aiProvider === 'offline') {
+    if (!hasApiKey || activeProvider === 'offline') {
       throw new Error(
         'API Key AI non configurata (HTTP 401). Configura una API Key valida (Google Gemini, OpenRouter o Groq) in Config oppure usa "Copia Prompt per Chat AI".'
       );
     }
 
+    const hasStep2Blueprint = Boolean(
+      analysisContext &&
+        ((Array.isArray(analysisContext.detectedComponents) && analysisContext.detectedComponents.length > 0) ||
+          (analysisContext.summary && analysisContext.summary.trim().length > 10))
+    );
+
+    let step3Images = [];
+    if (!hasStep2Blueprint && Array.isArray(images) && images.length > 0) {
+      const firstImg = images.find(
+        (img) => img && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/')
+      );
+      if (firstImg) {
+        const optimizedSingle = await this.optimizeImageToJpegDataUrl(firstImg.dataUrl, 768, 0.75);
+        step3Images = [{ ...firstImg, ...optimizedSingle }];
+      }
+    }
+
     const detectedSummary = analysisContext
       ? `\nSCHEDA RICONOSCIUTA NELLO STEP 2: ${analysisContext.boardIdentified || name}
-COLORE PCB RILEVATO: ${analysisContext.pcbColorHex || 'come da foto'}
+COLORE PCB RILEVATO: ${analysisContext.pcbColorHex || 'come da blueprint Step 2'}
 SINTESI VISIVA: ${analysisContext.summary || ''}
-COMPONENTI REALI RILEVATI NELLA FOTO (MODELLA SOLO QUESTI, NESSUN COMPONENTE ESTRANEO!):
+COMPONENTI REALI RILEVATI NELLO STEP 2 (MODELLA SOLO QUESTI, NESSUN COMPONENTE ESTRANEO!):
 ${(analysisContext.detectedComponents || []).map((c) => `- ${c}`).join('\n')}\n`
       : '';
 
+    const sourceModeDirective = step3Images.length === 0
+      ? 'Usa come specifica tecnica vincolante il blueprint visivo dettagliato già estratto nello Step 2 e le quote confermate qui sotto (in questo Step 3 non sono allegate nuove immagini per massima velocità: NON chiedere immagini e non lamentare assenza di foto).'
+      : 'Osserva attentamente l\'immagine allegata e le quote confermate dall\'utente.';
+
     const userPrompt = hasExistingScad
       ? `Parti da questo script OpenSCAD esistente per la scheda "${name}" (${category}) e implementa TUTTE le modifiche richieste dall'utente mantenendo lo stile, i moduli esistenti e garantendo una mesh 100% manifold (watertight, eps = 0.05 mm).
+${sourceModeDirective}
 ${detectedSummary}
 MODIFICHE RICHIESTE DALL'UTENTE:
 ${notes || 'Aggiorna le quote secondo i parametri confermati e verifica che sia 100% manifold.'}
@@ -414,26 +527,36 @@ ${JSON.stringify(parameters, null, 2)}
 
 CODICE OPENSCAD DI PARTENZA DA MODIFICARE:
 ${existingScad}`
-      : `Osserva attentamente le immagini allegate della scheda "${name}" (${category}) e genera lo script OpenSCAD 3D parametrico completo e 100% manifold (watertight, eps = 0.05 mm) che riproduce FEDELMENTE la scheda mostrata nella foto.
+      : `${sourceModeDirective}
+Genera lo script OpenSCAD 3D parametrico completo e 100% manifold (watertight, eps = 0.05 mm) per la scheda "${name}" (${category}) che riproduce FEDELMENTE la scheda reale descritta.
 ${detectedSummary}
 PARAMETRI E QUOTE CONFERMATE DALL'UTENTE (USA ESATTAMENTE QUESTE MISURE IN TESTA ALLO SCRIPT):
 ${JSON.stringify(parameters, null, 2)}
 
 NOTE UTENTE:
-${notes || 'Riproduci fedelmente la scheda, la forma del PCB, i fori di fissaggio e tutti i componenti visibili nella foto.'}
+${notes || 'Riproduci fedelmente la scheda, la forma del PCB, i fori di fissaggio e tutti i componenti reali descritti.'}
 
 VERIFICA FINALE PRIMA DI SCRIVERE IL CODICE:
 1. Le dimensioni pcb_length (${parameters.pcb_length} mm) e pcb_width (${parameters.pcb_width} mm) devono corrispondere esattamente ai parametri confermati.
-2. Modella SOLO i componenti realmente visibili nella foto allegata, nella loro posizione, forma e colore reale. NON inserire MAI display IPS, microSD, connettori JST o moduli ESP32 se non sono visibili nella foto!
+2. Modella SOLO i componenti elencati nel blueprint visivo dello Step 2 (o visti in foto), nella loro posizione, dimensione e colore esadecimale reale. NON inserire MAI display IPS, microSD, connettori JST o moduli ESP32 se non appartengono a questa scheda!
 3. Tutti i connettori sul bordo (es. USB-B, USB-C, Jack DC cilindrico, ecc.) devono avere l'imbocco/apertura rivolto verso l'ESTERNO del perimetro del PCB.
 4. Ogni componente appoggiato sul PCB deve partire da z = pcb_thickness - eps (con eps = 0.05) per garantire una mesh 100% manifold senza facce coplanari.
 5. Chiudi correttamente tutte le parentesi graffe { } e restituisci esclusivamente il codice OpenSCAD completo.`;
 
+    const systemDirective =
+      step3Images.length === 0
+        ? SYSTEM_PROMPT_MANIFOLD.replace(
+            'Osserva attentamente le immagini allegate nel payload multimodale.',
+            'Basati sul blueprint visivo dettagliato già estratto nello Step 2 e sui parametri confermati (nessuna immagine è allegata in questo Step 3).'
+          )
+        : SYSTEM_PROMPT_MANIFOLD;
+
     const aiCode = await this.invokeMultimodalLLM(
       settings,
-      `${SYSTEM_PROMPT_MANIFOLD}\n\n${userPrompt}`,
-      images,
-      false
+      `${systemDirective}\n\n${userPrompt}`,
+      step3Images,
+      false,
+      { onStatus }
     );
 
     const cleaned = this.extractCleanScadCode(aiCode);
@@ -496,10 +619,14 @@ VERIFICA FINALE PRIMA DI SCRIVERE IL CODICE:
   /**
    * Loop di Auto-Fix (max 2 tentativi) se il compilatore OpenSCAD restituisce un vero errore di sintassi/compilazione
    */
-  async autoFixManifoldScript(scadCode, compilerError, parameters = {}, name = 'Board', images = []) {
+  async autoFixManifoldScript(scadCode, compilerError, parameters = {}, name = 'Board', _images = [], onStatus = null) {
     const settings = storageService.getSettings();
+    const activeProvider = settings.aiProvider || 'gemini';
+    const hasApiKey = Boolean(
+      (settings.aiApiKey || settings.providerProfiles?.[activeProvider]?.apiKey || '').trim()
+    );
 
-    if (settings.aiApiKey && settings.aiProvider !== 'offline' && compilerError) {
+    if (hasApiKey && activeProvider !== 'offline' && compilerError) {
       try {
         const fixPrompt = `${SYSTEM_PROMPT_MANIFOLD}
 
@@ -509,7 +636,8 @@ ERRORE COMPILATORE: ${compilerError}
 Correggi l'errore di sintassi o geometria mantenendo intatti tutti i componenti e le dimensioni della scheda (${JSON.stringify(parameters)}), assicurando eps = 0.05 mm su tutte le unioni e restituendo SOLO il codice .scad completo e corretto:
 
 ${scadCode}`;
-        const rawFixed = await this.invokeMultimodalLLM(settings, fixPrompt, images, false);
+        // Auto-Fix invia payload leggero solo testo (script + errore compilatore, senza riallegare immagini)
+        const rawFixed = await this.invokeMultimodalLLM(settings, fixPrompt, [], false, { onStatus });
         const cleaned = this.extractCleanScadCode(rawFixed);
         if (cleaned && cleaned.length > 60) {
           return this.ensureManifoldCompliance(cleaned);
@@ -719,41 +847,15 @@ ${scadCode}`;
   }
 
   /**
-   * Chiamata fetch diretta verso Google Gemini / Gemma, OpenRouter (OpenAI Vision) o Groq Cloud (OpenAI Vision).
-   * Verifica, ridimensiona (<=1024px JPEG 0.85) e allega tutte le immagini nel payload multimodale!
+   * Singolo tentativo HTTP verso un modello specifico (Google Gemini/Gemma, OpenRouter, Groq o OpenAI).
+   * Allega .status (codice HTTP) o .isNetworkError agli errori sollevati per pilotare Retry e Model Cascade.
    */
-  async invokeMultimodalLLM(settings, promptText, images = [], expectJson = false) {
-    const provider = settings.aiProvider || 'gemini';
-    const apiKey = (settings.aiApiKey || '').trim();
-    if (!apiKey || provider === 'offline') {
-      throw new Error(
-        'API Key AI non configurata (HTTP 401): apri Config / Impostazioni e inserisci una API Key per Google Gemini, OpenRouter o Groq.'
-      );
-    }
-
-    // Filtra e valida le immagini Base64 caricate dall'utente (ridimensionamento difensivo <= 1024px JPEG 0.85)
-    const rawValidImages = (images || []).filter(
-      (img) => img && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/')
-    );
-
-    const validImages = [];
-    for (const img of rawValidImages) {
-      if (img.resized === true || typeof document === 'undefined') {
-        validImages.push(img);
-      } else {
-        const optimized = await this.optimizeImageToJpegDataUrl(img.dataUrl, 1024, 0.85);
-        validImages.push({ ...img, ...optimized });
-      }
-    }
-
-    const activeCfg = AI_PROVIDERS_CONFIG[provider] || AI_PROVIDERS_CONFIG.gemini;
-    const resolvedModel = (settings.aiModel || activeCfg.defaultModel || '').trim();
-
+  async invokeSingleModelAttempt({ provider, model, apiKey }, promptText, validImages = [], expectJson = false) {
     console.info(
-      `[AIService] Invio richiesta multimodale a ${provider} (${resolvedModel}) con ${validImages.length} immagini allegate.`
+      `[AIService] Tentativo chiamata ${provider} (${model}) · immagini allegate: ${validImages.length}`
     );
 
-    // Branch A: OpenAI-Compatible Vision Providers (OpenRouter, Groq Cloud, fallback OpenAI)
+    // Branch A: OpenAI-Compatible Providers (OpenRouter, Groq Cloud, fallback OpenAI)
     if (provider === 'openrouter' || provider === 'groq' || provider === 'openai') {
       const endpointMap = {
         openrouter: 'https://openrouter.ai/api/v1/chat/completions',
@@ -768,22 +870,27 @@ ${scadCode}`;
 
       const endpoint = endpointMap[provider];
       const providerLabel = labelMap[provider];
-      const model = resolvedModel || activeCfg.defaultModel;
 
-      const contentParts = [{ type: 'text', text: promptText }];
-      for (const img of validImages) {
-        contentParts.push({
-          type: 'image_url',
-          image_url: { url: img.dataUrl }
-        });
-      }
+      // Quando validImages è vuoto (Step 3 leggero / Auto-Fix), invia stringa testuale pura
+      // così funzionano anche i modelli testuali in cascata senza errori sul formato array multimodale.
+      const messageContent =
+        validImages.length === 0
+          ? promptText
+          : [
+              { type: 'text', text: promptText },
+              ...validImages.map((img) => ({
+                type: 'image_url',
+                image_url: { url: img.dataUrl }
+              }))
+            ];
 
       const headers = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
         ...(provider === 'openrouter'
           ? {
-              'HTTP-Referer': typeof location !== 'undefined' ? location.origin : 'https://debartoloa.github.io/Board2CAD/',
+              'HTTP-Referer':
+                typeof location !== 'undefined' ? location.origin : 'https://debartoloa.github.io/Board2CAD/',
               'X-Title': 'Board2CAD'
             }
           : {})
@@ -796,28 +903,29 @@ ${scadCode}`;
           headers,
           body: JSON.stringify({
             model,
-            messages: [{ role: 'user', content: contentParts }],
+            messages: [{ role: 'user', content: messageContent }],
             temperature: 0.15,
             max_tokens: 4096
           })
         });
       } catch (netErr) {
-        throw new Error(`Errore di rete verso ${providerLabel}: ${netErr?.message || String(netErr)}`);
+        const err = new Error(`Errore di rete verso ${providerLabel}: ${netErr?.message || String(netErr)}`);
+        err.isNetworkError = true;
+        throw err;
       }
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(this.formatApiHttpError(providerLabel, res.status, errText));
+        const err = new Error(this.formatApiHttpError(providerLabel, res.status, errText));
+        err.status = res.status;
+        throw err;
       }
       const data = await res.json();
       return extractOpenAICompatibleText(data, providerLabel);
     }
 
     // Branch B: Google AI Studio (Gemini 3.x / 2.5 / Gemma 4)
-    const model = resolvedModel || AI_PROVIDERS_CONFIG.gemini.defaultModel;
     const parts = [];
-
-    // Inserisce prima tutte le immagini inline_data Base64 e poi il prompt testuale (best practice Gemini Vision)
     for (const img of validImages) {
       const commaIdx = img.dataUrl.indexOf(',');
       if (commaIdx !== -1) {
@@ -832,7 +940,6 @@ ${scadCode}`;
         });
       }
     }
-
     parts.push({ text: promptText });
 
     const isGemma = /^gemma-/i.test(model);
@@ -857,15 +964,146 @@ ${scadCode}`;
         })
       });
     } catch (netErr) {
-      throw new Error(`Errore di rete verso Google Gemini: ${netErr?.message || String(netErr)}`);
+      const err = new Error(`Errore di rete verso Google Gemini: ${netErr?.message || String(netErr)}`);
+      err.isNetworkError = true;
+      throw err;
     }
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(this.formatApiHttpError('Google Gemini', res.status, errText));
+      const err = new Error(this.formatApiHttpError('Google Gemini', res.status, errText));
+      err.status = res.status;
+      throw err;
     }
     const data = await res.json();
     return extractGeminiResponseText(data);
+  }
+
+  /**
+   * Chiamata resiliente con Retry (2.5s su 503/429) e Catena di Fallback Automatico tra modelli e provider.
+   * Pre-ottimizza eventuali immagini allegate su <canvas> (<=1024px JPEG 0.85) prima del ciclo di tentativi.
+   */
+  async invokeMultimodalLLM(settings, promptText, images = [], expectJson = false, options = {}) {
+    const { onStatus = null, retryDelayMs = 2500 } = options || {};
+    const cascadePlan = buildModelCascadePlan(settings);
+
+    if (!cascadePlan.length) {
+      throw new Error(
+        'API Key AI non configurata (HTTP 401): apri Config / Impostazioni e inserisci una API Key per Google Gemini, OpenRouter o Groq.'
+      );
+    }
+
+    // Filtra e valida le immagini Base64 caricate dall'utente (ridimensionamento difensivo <= 1024px JPEG 0.85)
+    const rawValidImages = (images || []).filter(
+      (img) => img && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/')
+    );
+
+    const validImages = [];
+    for (const img of rawValidImages) {
+      if (img.resized === true || typeof document === 'undefined') {
+        validImages.push(img);
+      } else {
+        const optimized = await this.optimizeImageToJpegDataUrl(img.dataUrl, 1024, 0.85);
+        validImages.push({ ...img, ...optimized });
+      }
+    }
+
+    let lastError = null;
+
+    for (let i = 0; i < cascadePlan.length; ) {
+      const candidate = cascadePlan[i];
+      let attemptErr = null;
+
+      try {
+        return await this.invokeSingleModelAttempt(candidate, promptText, validImages, expectJson);
+      } catch (err) {
+        attemptErr = err;
+      }
+
+      // 1. Se la API Key del provider è rifiutata (401/403), salta subito al primo fallback cross-provider se esiste
+      if (attemptErr.status === 401 || attemptErr.status === 403) {
+        const nextCrossIdx = cascadePlan.findIndex((c, idx) => idx > i && c.provider !== candidate.provider);
+        if (nextCrossIdx !== -1) {
+          const nextCross = cascadePlan[nextCrossIdx];
+          onStatus?.(
+            `⚠️ Modello ${candidate.model} occupato (${attemptErr.status}), passaggio automatico a ${nextCross.model} (${nextCross.label})...`,
+            {
+              type: 'fallback',
+              fromModel: candidate.model,
+              toModel: nextCross.model,
+              toProvider: nextCross.provider,
+              status: attemptErr.status
+            }
+          );
+          i = nextCrossIdx;
+          continue;
+        }
+        throw attemptErr;
+      }
+
+      // 2. Su HTTP 503, HTTP 429 o errore di rete temporaneo: attendi 2.5s e riprova UNA volta lo stesso modello
+      if (attemptErr.status === 503 || attemptErr.status === 429 || attemptErr.isNetworkError) {
+        const statusTag = attemptErr.status || 'rete';
+        const waitSec = (retryDelayMs / 1000).toFixed(1);
+        onStatus?.(
+          `⏳ Modello ${candidate.model} occupato (${statusTag}), nuovo tentativo tra ${waitSec}s...`,
+          {
+            type: 'retry',
+            provider: candidate.provider,
+            model: candidate.model,
+            status: attemptErr.status || 0
+          }
+        );
+
+        if (retryDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+
+        try {
+          return await this.invokeSingleModelAttempt(candidate, promptText, validImages, expectJson);
+        } catch (retryErr) {
+          attemptErr = retryErr;
+        }
+      }
+
+      lastError = attemptErr;
+
+      // 3. Se fallisce ancora (o su HTTP 404/500/502/504/400), passa al modello successivo in cascata
+      const nextCandidate = cascadePlan[i + 1];
+      const canCascade =
+        attemptErr.status === 503 ||
+        attemptErr.status === 429 ||
+        attemptErr.status === 404 ||
+        attemptErr.status === 500 ||
+        attemptErr.status === 502 ||
+        attemptErr.status === 504 ||
+        attemptErr.status === 400 ||
+        attemptErr.isNetworkError ||
+        !attemptErr.status;
+
+      if (nextCandidate && canCascade) {
+        const targetLabel =
+          nextCandidate.provider !== candidate.provider
+            ? `${nextCandidate.model} (${nextCandidate.label})`
+            : nextCandidate.model;
+        onStatus?.(
+          `⚠️ Modello ${candidate.model} occupato (${attemptErr.status || 'errore'}), passaggio automatico a ${targetLabel}...`,
+          {
+            type: 'fallback',
+            fromModel: candidate.model,
+            toModel: nextCandidate.model,
+            toProvider: nextCandidate.provider,
+            status: attemptErr.status || 0
+          }
+        );
+        i += 1;
+        continue;
+      }
+
+      throw attemptErr;
+    }
+
+    throw lastError || new Error('Tutti i modelli AI configurati nella catena hanno restituito errore.');
   }
 }
 

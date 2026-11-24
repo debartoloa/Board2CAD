@@ -7,7 +7,7 @@
 ## 1. Identità del Progetto & Stack Tecnologico
 
 - **Nome Applicazione:** `Board2CAD` (sottotitolo: *PCB 3D Parametric Studio*)
-- **Versione Corrente (`APP_VERSION`):** `v1.5.1` (allineata in `js/app.js`, `sw.js`, `manifest.webmanifest`, `CHANGELOG.md` e badge UI nell'header).
+- **Versione Corrente (`APP_VERSION`):** `v1.6.0` (allineata in `js/app.js`, `sw.js`, `manifest.webmanifest`, `CHANGELOG.md` e badge UI nell'header).
 - **Zero Framework & Zero Build Step:**
   - È **severamente vietato** introdurre React, Vue, Svelte, Angular, Tailwind CSS, jQuery, Webpack, Vite o dipendenze `node_modules` lato runtime.
   - L'applicazione deve funzionare **100% client-side** servendo direttamente la root del repository tramite qualsiasi server statico (Live Server, Python `http.server`, GitHub Pages, Cloudflare Workers).

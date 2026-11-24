@@ -23,9 +23,9 @@
   <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
 
   <!-- Stylesheets (Vanilla CSS3) -->
-  <link rel="stylesheet" href="./css/variables.css?v=1.5.1">
-  <link rel="stylesheet" href="./css/main.css?v=1.5.1">
-  <link rel="stylesheet" href="./css/viewer.css?v=1.5.1">
+  <link rel="stylesheet" href="./css/variables.css?v=1.6.0">
+  <link rel="stylesheet" href="./css/main.css?v=1.6.0">
+  <link rel="stylesheet" href="./css/viewer.css?v=1.6.0">
 
   <!-- ES Module Import Map (Zero Build Step) -->
   <script type="importmap">
@@ -57,7 +57,7 @@
           <div class="brand-titles">
             <div class="brand-name-row">
               <span class="brand-name">Board2CAD</span>
-              <span class="version-badge" id="app-version-badge">v1.5.1</span>
+              <span class="version-badge" id="app-version-badge">v1.6.0</span>
             </div>
             <span class="brand-subtitle">PCB 3D Parametric Studio · OpenSCAD &amp; 3MF</span>
           </div>
@@ -328,11 +328,14 @@
               <button type="button" class="btn btn-secondary" id="wizard-back-step2-btn">
                 ← Modifica Quote
               </button>
+              <button type="button" class="btn btn-primary" id="wizard-retry-step3-btn" title="Riprova subito la generazione OpenSCAD e compilazione senza perdere le quote confermate">
+                <span>🔄 Riprova Generazione</span>
+              </button>
               <button type="button" class="btn btn-secondary js-copy-ai-prompt-btn" title="Copia il prompt completo per usare una chat AI esterna in caso di errori API o assenza di API Key">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 <span>Copia Prompt per Chat AI</span>
               </button>
-              <button type="button" class="btn btn-primary" id="wizard-open-studio-btn">
+              <button type="button" class="btn btn-primary" id="wizard-open-studio-btn" hidden>
                 <span>Apri nello Studio 3D &amp; Scarica STL / 3MF →</span>
               </button>
             </div>
@@ -632,6 +635,6 @@
   </div>
 
   <!-- Main Application Entry Point (Vanilla ES6 Module) -->
-  <script type="module" src="./js/app.js?v=1.5.1"></script>
+  <script type="module" src="./js/app.js?v=1.6.0"></script>
 </body>
 </html>

@@ -5,6 +5,24 @@ Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.0.0/)
 
 ---
 
+## [v1.6.0] - 2026-11-24
+
+### Added
+- **Catena Automatica Modelli + Retry con Backoff (`js/services/aiService.js`):**
+  - Introdotto `buildModelCascadePlan()` e gestione resiliente con retry e model cascade su tutte le chiamate AI (Step 2 Analisi, Step 3 Generazione OpenSCAD e Auto-Fix).
+  - Quando il provider attivo è **Google AI Studio**, costruisce dinamicamente la sequenza deduplicata `[selectedModel, 'gemma-4-31b-it', 'gemma-4-26b-a4b-it', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.8-flash']`, adattando automaticamente `thinkingConfig` e `responseMimeType` al modello in uso.
+  - Su errori temporanei `HTTP 503` / `HTTP 429` o di rete, attende `2.5 s` e riprova una volta; se fallisce ancora (o su `HTTP 404` / `5xx`), passa automaticamente al modello successivo aggiornando live banner e log dello Wizard (`"⚠️ Modello [nome] occupato (503), passaggio automatico a [prossimo]..."`).
+  - **Fallback Cross-Provider:** Se l'utente ha salvato anche una API Key per **Groq Cloud** o **OpenRouter** in `localStorage` (`providerProfiles`), la catena accoda automaticamente i provider secondari prima di restituire errore.
+- **Pulsante Diretto "🔄 Riprova Generazione" in Step 3 (`index.html`, `js/components/wizard.js`):**
+  - Aggiunto pulsante diretto `#wizard-retry-step3-btn` sia nella barra azioni dello Step 3 sia nel banner rosso persistente in caso di errore, permettendo di rilanciare la generazione OpenSCAD e la compilazione STL/3MF senza perdere l'analisi Step 2 o le quote confermate.
+
+### Changed
+- **Payload Leggero dello Step 3 (`js/services/aiService.js`, `js/components/wizard.js`):**
+  - Quando lo Step 2 ha già estratto il blueprint dettagliato dei componenti e il riepilogo visivo (`analysisContext`), lo Step 3 invia un payload **solo testo** (0 immagini Base64 riallegate) con posizioni, dimensioni e colori dei componenti + quote confermate dall'utente, abbattendo latenza ed errori `HTTP 503` e rendendo compatibili anche i modelli testuali in cascata.
+  - In assenza di blueprint Step 2, allega al massimo una singola immagine ridimensionata (`768 px`, JPEG `0.75`); anche la chiamata di Auto-Fix OpenSCAD opera ora esclusivamente su testo.
+
+---
+
 ## [v1.5.1] - 2026-11-24
 
 ### Fixed
