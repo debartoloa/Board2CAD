@@ -26,6 +26,10 @@ Non creare mai cartelle versionate (`v1/`, `v2/`, `old/`, `backup/`). Il reposit
 ```text
 /
 ├── Agents.md                  # Regole master del progetto (SEMPRE PRIORITARIE)
+├── .agents/
+│   └── skills/
+│       └── ai-multi-provider/
+│           └── SKILL.md       # Skill architetturale riutilizzabile per integrazioni AI Multi-Provider
 ├── index.html                 # Entry point PWA (Import Map + UI semantica)
 ├── manifest.webmanifest       # Manifest PWA store-ready (PWABuilder compliant)
 ├── manifest.json              # Alias/copia sincronizzata per compatibilità universale
@@ -119,3 +123,21 @@ Ogni script OpenSCAD generato dall'AI o incluso in `models/` deve rispettare que
 
 - **Zero Segreti nel Codice:** Nessuna API Key (Gemini, OpenAI) e nessun Personal Access Token GitHub devono mai essere hardcoded nei file sorgente o committati su Git.
 - Le chiavi inserite dall'utente vengono salvate esclusivamente nel `localStorage` locale del dispositivo (`board2cad_settings_v1`).
+
+---
+
+## 6. Architettura & Integrazioni AI
+
+### Standard Obbligatorio Multi-Provider AI (Zero Single-Point-of-Failure)
+- **Divieto di provider singolo:** Nessuna app o funzione basata su AI deve dipendere esclusivamente da Google AI Studio (Gemini). Ogni modulo AI (`aiService.js` o equivalente) deve implementare nativamente un'architettura **Multi-Provider** con almeno questi **3 provider gratuiti/compatibili** selezionabili dall'utente nelle Impostazioni (`Config`):
+  1. **Google AI Studio (Gemini):** Endpoint `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` (con supporto a `thinkingConfig`, filtraggio delle parti `part.thought === true` nella risposta, gestione compatibilità per modelli `gemma-*` e lista modelli aggiornata es. `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.1-pro-preview`, `gemma-4-31b-it`).
+  2. **OpenRouter:** Endpoint OpenAI-compatibile `https://openrouter.ai/api/v1/chat/completions` (con header `HTTP-Referer` e `X-Title`, modelli free consigliati es. `qwen/qwen2.5-vl-72b-instruct:free`, `google/gemma-3-27b-it:free`, `meta-llama/llama-3.3-70b-instruct:free`).
+  3. **Groq Cloud:** Endpoint OpenAI-compatibile ultraveloce `https://api.groq.com/openai/v1/chat/completions` (modelli consigliati es. `meta-llama/llama-4-scout-17b-16e-instruct`, `llama-3.3-70b-versatile`).
+- **Gestione Configurazione & Persistenza:**
+  - La UI delle Impostazioni deve sempre offrire un selettore **Provider AI**, un campo **API Key** salvato separatamente per ciascun provider in `localStorage` (così cambiando provider non si sovrascrivono le chiavi già inserite), e un selettore/campo libero per il **Modello**.
+- **Adapter Unificato & Multimodalità:**
+  - L'adapter `aiService.js` deve astrarre le differenze di formato tra l'API nativa Gemini (`contents` + `inlineData` / `inline_data`) e il formato standard OpenAI (`messages` + `image_url` data URI), includendo il ridimensionamento automatico lato client delle immagini su `<canvas>` (max `1024px`, JPEG `0.85`) prima dell'invio.
+- **Feedback UI Esplicito & Paracadute Offline:**
+  - Ogni chiamata AI deve avere stati UI visibili (`loading` con spinner e pulsante disabilitato, `error` persistente con codice HTTP e messaggio reale, `success`), senza mai inghiottire errori in silenzio (`try / catch / finally`).
+  - Quando il flusso prevede generazione di codice o testi complessi, includere sempre anche un pulsante **"Copia Prompt per Chat AI"** per consentire l'uso manuale su chat AI esterne in assenza di API Key o connessione.
+
