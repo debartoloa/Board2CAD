@@ -11,7 +11,7 @@ import { GalleryComponent } from './components/gallery.js';
 import { WizardComponent } from './components/wizard.js';
 import { SettingsComponent } from './components/settings.js';
 
-export const APP_VERSION = 'v1.3.0';
+export const APP_VERSION = 'v1.4.0';
 
 class Board2CADApp {
   constructor() {
@@ -64,6 +64,7 @@ class Board2CADApp {
     this.wizard = new WizardComponent({
       compileScadWithWorker: (scadCode, overrides) => this.compileScad(scadCode, overrides),
       onModelGenerated: (modelData, switchToStudio) => this.handleNewWizardModel(modelData, switchToStudio),
+      onPrepareDraftFromPrompt: (draftInfo) => this.prepareDraftModelForStudio(draftInfo),
       showToast: (msg, type) => this.showToast(msg, type)
     });
 
@@ -257,6 +258,59 @@ class Board2CADApp {
   }
 
   /**
+   * Prepara una nuova bozza locale nello Studio 3D (aprendo l'Editor .SCAD) quando l'utente
+   * copia il prompt per una Chat AI esterna, evitando di sovrascrivere il modello del repo corrente.
+   */
+  prepareDraftModelForStudio(draftInfo = {}) {
+    const rawName = (draftInfo.name || 'Nuova Scheda da Chat AI').trim();
+    const slug =
+      rawName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48) || `pcb-${Date.now()}`;
+
+    if (this.activeModel && this.activeModel.source === 'repo' && this.activeModel.slug === slug) {
+      // Evita collisione con un modello base del repository usando uno slug dedicato
+      this.activeModel = this.createDraftStub(`${slug}-custom`, `${rawName} (Custom)`, draftInfo);
+    } else {
+      this.activeModel = this.createDraftStub(slug, rawName, draftInfo);
+    }
+
+    this.populateStudioUI(this.activeModel);
+
+    // Pre-seleziona il tab Editor .SCAD così l'utente può incollare subito la risposta dell'AI
+    const codeTabBtn = document.querySelector('.inspector-tabs .insp-tab[data-insp-tab="code"]');
+    codeTabBtn?.click();
+  }
+
+  createDraftStub(slug, name, draftInfo = {}) {
+    const nowIso = new Date().toISOString();
+    return {
+      slug,
+      source: 'local',
+      hasLocalOverride: false,
+      customMeshLocked: false,
+      meta: {
+        slug,
+        name,
+        category: draftInfo.category || 'Custom PCB',
+        description: draftInfo.notes || `Modello parametrico 3D ${name} generato via Chat AI.`,
+        dimensions: { length: 68.6, width: 53.4, height: 10.0 },
+        tags: ['OpenSCAD', 'ChatAI', 'Manifold', 'STL', '3MF'],
+        createdAt: nowIso,
+        updatedAt: nowIso
+      },
+      scad: '// Incolla qui il codice .SCAD generato dalla tua Chat AI e premi "Compila Script" (o "Compila & Salva")\n',
+      stlBuffer: null,
+      threemfBuffer: null,
+      viewerParts: [],
+      metrics: null,
+      previewDataUrl: draftInfo.previewDataUrl || './icon-512.png'
+    };
+  }
+
+  /**
    * Salva tutte le modifiche correnti del componente attivo (SCAD, STL, 3MF, PNG, META) in IndexedDB
    */
   async saveActiveComponentAllFiles(captureNewPreviewIfWebGL = false) {
@@ -319,6 +373,8 @@ class Board2CADApp {
     if (consoleEl && model.metrics) {
       const d = model.metrics.dimensions || dims;
       consoleEl.textContent = `[${model.metrics.engine}] Compilato in ${model.metrics.elapsedMs} ms · ${model.metrics.triangles} triangoli · Bounding Box: ${d.length}×${d.width}×${d.height} mm · 100% Manifold.`;
+    } else if (consoleEl) {
+      consoleEl.textContent = '[OpenSCAD AST CSG Engine] Bozza pronta: incolla il codice .SCAD e premi "Compila Script".';
     }
 
     // Renderizza nel viewport 3D (o fallback preview.png)
@@ -544,9 +600,19 @@ class Board2CADApp {
   async compileFromEditor(saveAfterCompile = false) {
     const editorEl = document.getElementById('scad-code-editor');
     const consoleEl = document.getElementById('compiler-console-output');
-    if (!editorEl || !this.activeModel) return;
+    if (!editorEl) return;
 
-    const codeToCompile = editorEl.value;
+    if (!this.activeModel) {
+      this.activeModel = this.createDraftStub(`custom-board-${Date.now()}`, 'Nuova Scheda Custom');
+    }
+
+    // Pulisce eventuali code fence markdown (```openscad ... ```) incollati da una Chat AI esterna
+    const rawEditorCode = editorEl.value || '';
+    const codeToCompile = aiService.extractCleanScadCode(rawEditorCode) || rawEditorCode;
+    if (codeToCompile !== rawEditorCode.trim()) {
+      editorEl.value = codeToCompile;
+    }
+
     if (consoleEl) {
       consoleEl.textContent = '[OpenSCAD AST CSG Engine] Compilazione in corso...';
     }
@@ -1099,6 +1165,32 @@ class Board2CADApp {
 
     document.getElementById('btn-compile-and-save-editor')?.addEventListener('click', () => {
       this.compileFromEditor(true);
+    });
+
+    document.getElementById('btn-new-from-editor')?.addEventListener('click', async () => {
+      const editorEl = document.getElementById('scad-code-editor');
+      const code = aiService.extractCleanScadCode(editorEl?.value || '') || (editorEl?.value || '').trim();
+      if (!code) {
+        this.showToast('Inserisci prima un codice .SCAD nell\'editor.', 'warning');
+        return;
+      }
+      const suggestedName = `${this.activeModel?.meta?.name || 'Nuova Scheda'} Custom`;
+      const newName = window.prompt('Inserisci il nome della nuova scheda da salvare in Libreria:', suggestedName);
+      if (!newName || !newName.trim()) return;
+
+      const cleanName = newName.trim();
+      const slug =
+        cleanName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 48) || `pcb-${Date.now()}`;
+
+      this.activeModel = this.createDraftStub(slug, cleanName, {
+        previewDataUrl: this.activeModel?.previewDataUrl || './icon-512.png'
+      });
+      if (editorEl) editorEl.value = code;
+      await this.compileFromEditor(true);
     });
 
     // Scorciatoia da tastiera Ctrl+Invio / Cmd+Invio dentro l'editor .SCAD
