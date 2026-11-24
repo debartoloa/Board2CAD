@@ -141,3 +141,19 @@ Ogni script OpenSCAD generato dall'AI o incluso in `models/` deve rispettare que
   - Ogni chiamata AI deve avere stati UI visibili (`loading` con spinner e pulsante disabilitato, `error` persistente con codice HTTP e messaggio reale, `success`), senza mai inghiottire errori in silenzio (`try / catch / finally`).
   - Quando il flusso prevede generazione di codice o testi complessi, includere sempre anche un pulsante **"Copia Prompt per Chat AI"** per consentire l'uso manuale su chat AI esterne in assenza di API Key o connessione.
 
+
+---
+
+## 7. Feedback Visivo di Attesa e Diagnosi Esplicita degli Errori (UX/UI & Resilienza)
+
+> Regola obbligatoria valida per **qualsiasi progetto firmware, web o desktop** (display embedded LVGL, dashboard web, PWA, app desktop) e quindi anche per ogni modulo di Board2CAD (Wizard AI, compilazione Web Worker, sync GitHub, caricamento libreria modelli, Studio 3D).
+
+1. **Stato di Attesa / Elaborazione (`Loading State`):**
+   - Ogni volta che l'interfaccia avvia una funzione asincrona che richiede tempo, elaborazione o recupero dati da rete/API/sensori, è **obbligatorio** sostituire immediatamente i segnaposto vuoti con un indicatore chiaro di attesa (es. testo `"Recupero dati in corso..."` / `"Elaborazione..."`, spinner o barra di avanzamento), affinché l'utente sappia sempre che il sistema sta lavorando e non è bloccato.
+   - Durante l'attesa disabilita i comandi che rilancerebbero la stessa operazione per evitare richieste duplicate.
+2. **Gestione Esplicita dei Fallimenti (`Error State` con Causa):**
+   - È **vietato** lasciare campi vuoti, valori congelati o messaggi generici come `"Errore"` quando un recupero dati o un'elaborazione fallisce.
+   - L'interfaccia deve sempre mostrare il **motivo specifico del fallimento** (es. *Assenza di connessione Wi-Fi*, *Rete senza accesso a Internet / Firewall*, *Timeout del server / API non raggiungibile*, *Errore HTTP 4xx/5xx* con codice reale, *Errore di parsing dati*), adattando la sintesi allo spazio disponibile (messaggio compatto su piccoli display embedded, dettaglio completo con suggerimento e pulsante "Riprova" su interfacce web/desktop).
+3. **Implementazione Tecnica Minima:**
+   - Ogni flusso asincrono gestisce esplicitamente gli stati `loading` → `success` | `error` (`try / catch / finally`), senza mai inghiottire errori in silenzio.
+   - Lo stato di errore resta visibile (banner persistente, non solo toast) finché l'utente non riprova o un nuovo tentativo va a buon fine.
